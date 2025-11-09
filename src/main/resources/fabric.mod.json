@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "stainless",
+  "version": "${version}",
+  "name": "Stainless",
+  "description": "Pvp Addon <3.",
+  "authors": [
+    "Xenon_ne"
+  ],
+  "contact": {
+    "repo": "https://github.com/Xenoneee/auto-concrete-addon"
+  },
+  "icon": "assets/template/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "meteor": [
+      "xenon.addon.stainless.Stainless"
+    ]
+  },
+  "mixins": [
+    "stainless.mixins.json"
+  ],
+  "custom": {
+    "meteor-client:color": "75,75,75"
+  },
+  "depends": {
+    "java": ">=21",
+    "minecraft": ["${mc_version}"],
+    "meteor-client": "*"
+  }
+}

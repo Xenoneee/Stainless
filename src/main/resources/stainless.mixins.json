@@ -1,0 +1,13 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "xenon.addon.stainless.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "ChatUtilsToggleMixin",
+    "MixinEndCrystalEntityRenderer",
+    "MixinModelPart",
+    "MixinLivingEntityRenderer"
+  ],
+  "injectors": { "defaultRequire": 1 }
+}
