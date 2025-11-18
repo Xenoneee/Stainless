@@ -27,7 +27,20 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
+/**
+ * Automatically places blocks beneath the player while moving.
+ * Credits to TrouserSteak for the original implementation.
+ */
 public class BetterScaffold extends StainlessModule {
+    // Constants for magic numbers
+    private static final double PLAYER_HITBOX_OFFSET = 0.5;
+    private static final double VELOCITY_PREDICTION_OFFSET = -0.98;
+    private static final float TOWER_UP_VELOCITY = 0.42f;
+    private static final float TOWER_DOWN_VELOCITY = -0.28f;
+    private static final int BLOCK_PLACE_DELAY_MS = 50;
+    private static final int RENDER_FADE_TICKS = 8;
+    private static final double DIRECTION_THRESHOLD = 0.5;
+    private static final double SNEAKING_Y_TOLERANCE = 0.1;
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
     private final SettingGroup sgRender = settings.createGroup("Render");
 
@@ -192,7 +205,6 @@ public class BetterScaffold extends StainlessModule {
         initialY = mc.player.getBlockY()-1;
         lastWasSneaking = mc.options.sneakKey.isPressed();
         if (lastWasSneaking) {
-            assert mc.player != null;
             lastSneakingY = mc.player.getY();
         }
 
@@ -210,31 +222,29 @@ public class BetterScaffold extends StainlessModule {
 
     @EventHandler
     private void onTick(TickEvent.Pre event) {
+        if (mc.player == null || mc.world == null) return;
 
         // Ticking fade animation
         renderBlocks.forEach(RenderBlock::tick);
         renderBlocks.removeIf(renderBlock -> renderBlock.ticks <= 0);
+
         if (airPlace.get()) {
-            assert mc.player != null;
-            Vec3d vec = mc.player.getPos().add(mc.player.getVelocity()).add(0, -0.5f, 0);
+            Vec3d vec = mc.player.getPos().add(mc.player.getVelocity()).add(0, -PLAYER_HITBOX_OFFSET, 0);
             bp.set(vec.getX(), vec.getY(), vec.getZ());
 
         } else {
-            assert mc.player != null;
             if (BlockUtils.getPlaceSide(mc.player.getBlockPos().down()) != null) {
                 bp.set(mc.player.getBlockPos().down());
 
             } else {
-                Vec3d pos = mc.player.getPos();
-                pos = pos.add(0, -0.98f, 0);
-                pos.add(mc.player.getVelocity());
+                Vec3d pos = mc.player.getPos().add(0, VELOCITY_PREDICTION_OFFSET, 0);
+                // Note: Removed dead code - pos.add(mc.player.getVelocity()) was not assigned
 
                 if (PlayerUtils.distanceTo(prevBp) > placeRange.get()) {
                     List<BlockPos> blockPosArray = new ArrayList<>();
 
                     for (int x = (int) (mc.player.getX() - placeRange.get()); x < mc.player.getX() + placeRange.get(); x++) {
                         for (int z = (int) (mc.player.getZ() - placeRange.get()); z < mc.player.getZ() + placeRange.get(); z++) {
-                            assert mc.world != null;
                             for (int y = (int) Math.max(mc.world.getBottomY(), mc.player.getY() - placeRange.get()); y < Math.min(mc.world.getTopYInclusive(), mc.player.getY() + placeRange.get()); y++) {
                                 bp.set(x, y, z);
                                 if (!mc.world.getBlockState(bp).isAir()) blockPosArray.add(new BlockPos(bp));
@@ -250,15 +260,15 @@ public class BetterScaffold extends StainlessModule {
                     prevBp.set(blockPosArray.get(0));
                 }
 
-                Vec3d vecPrevBP = new Vec3d((double) prevBp.getX() + 0.5f,
-                    (double) prevBp.getY() + 0.5f,
-                    (double) prevBp.getZ() + 0.5f);
+                Vec3d vecPrevBP = new Vec3d((double) prevBp.getX() + PLAYER_HITBOX_OFFSET,
+                    (double) prevBp.getY() + PLAYER_HITBOX_OFFSET,
+                    (double) prevBp.getZ() + PLAYER_HITBOX_OFFSET);
 
                 Vec3d sub = pos.subtract(vecPrevBP);
                 Direction facing;
-                if (sub.getY() < -0.5f) {
+                if (sub.getY() < -DIRECTION_THRESHOLD) {
                     facing = Direction.DOWN;
-                } else if (sub.getY() > 0.5f) {
+                } else if (sub.getY() > DIRECTION_THRESHOLD) {
                     facing = Direction.UP;
                 } else facing = Direction.getFacing(sub.getX(), 0, sub.getZ());
 
@@ -268,8 +278,9 @@ public class BetterScaffold extends StainlessModule {
         // Check if keepY is enabled and adjust the block position
         if (keepY.get()) {
             bp.setY(initialY);
-            // Skip placing blocks if the distance exceeds keepYreach
-            if (bp.getSquaredDistance(mc.player.getPos()) > keepYreach.get()) {
+            // Skip placing blocks if the distance exceeds keepYreach (FIX: squared distance bug)
+            double keepYReachSquared = keepYreach.get() * keepYreach.get();
+            if (bp.getSquaredDistance(mc.player.getPos()) > keepYReachSquared) {
                 return;
             }
         }
@@ -282,7 +293,7 @@ public class BetterScaffold extends StainlessModule {
 
         // Move down if shifting
         if (mc.options.sneakKey.isPressed() && !mc.options.jumpKey.isPressed()) {
-            if (lastSneakingY - mc.player.getY() < 0.1) {
+            if (lastSneakingY - mc.player.getY() < SNEAKING_Y_TOLERANCE) {
                 lastWasSneaking = false;
                 return;
             }
@@ -292,7 +303,7 @@ public class BetterScaffold extends StainlessModule {
         if (!lastWasSneaking) lastSneakingY = mc.player.getY();
 
         if (mc.options.jumpKey.isPressed() && !mc.options.sneakKey.isPressed() && fastTower.get()) {
-            mc.player.setVelocity(0, 0.42f, 0);
+            mc.player.setVelocity(0, TOWER_UP_VELOCITY, 0);
         }
         int vOffset;
         if (placementMode.get() == PlaceMode.BelowFeet) {
@@ -303,7 +314,7 @@ public class BetterScaffold extends StainlessModule {
             return; // Skip the rest of the code if the placement mode is not valid
         }
 
-        if (BlockUtils.place(bp.add(0, vOffset, 0), item, rotate.get(), 50, renderSwing.get(), true)) {
+        if (BlockUtils.place(bp.add(0, vOffset, 0), item, rotate.get(), BLOCK_PLACE_DELAY_MS, renderSwing.get(), true)) {
 
             if (horizontalRadius.get() > 1 || verticalRadius.get() > 1) {
                 horizontalAndVertical(bp, item);
@@ -314,16 +325,14 @@ public class BetterScaffold extends StainlessModule {
 
             // Move player down so they are on top of the placed block ready to jump again
             if (mc.options.jumpKey.isPressed() && !mc.options.sneakKey.isPressed() && !mc.player.isOnGround()) {
-                assert mc.world != null;
                 if (!mc.world.getBlockState(bp).isAir() && fastTower.get()) {
-                    mc.player.setVelocity(0, -0.28f, 0);
+                    mc.player.setVelocity(0, TOWER_DOWN_VELOCITY, 0);
                 }
             }
         } else if(onSurface.get()){
             horizontalAndVertical(new BlockPos.Mutable(mc.player.getX(), mc.player.getY() - 1, mc.player.getZ()), item);
         }
 
-        assert mc.world != null;
         if (!mc.world.getBlockState(bp).isAir()) {
             prevBp.set(bp);
         }
@@ -331,6 +340,7 @@ public class BetterScaffold extends StainlessModule {
 
     private boolean validItem(ItemStack itemStack, BlockPos pos) {
         if (!(itemStack.getItem() instanceof BlockItem)) return false;
+        if (mc.world == null) return false;
 
         Block block = ((BlockItem) itemStack.getItem()).getBlock();
 
@@ -339,7 +349,6 @@ public class BetterScaffold extends StainlessModule {
 
         if (!Block.isShapeFullCube(block.getDefaultState().getCollisionShape(mc.world, pos))) return false;
         if (!(block instanceof FallingBlock)) return true;
-        assert mc.world != null;
         return !FallingBlock.canFallThrough(mc.world.getBlockState(pos));
     }
 
@@ -360,7 +369,7 @@ public class BetterScaffold extends StainlessModule {
                     continue; // Skip the loop iteration if the placement mode is not valid
                 }
 
-                if (BlockUtils.place(bp.add(0, vOffset, 0), item, rotate.get(), 50, renderSwing.get(), true)) {
+                if (BlockUtils.place(bp.add(0, vOffset, 0), item, rotate.get(), BLOCK_PLACE_DELAY_MS, renderSwing.get(), true)) {
                     renderBlocks.add(renderBlockPool.get().set(bp.add(0, vOffset, 0)));
                 }
             }
@@ -381,38 +390,38 @@ public class BetterScaffold extends StainlessModule {
                 for (int h = 1; h < horizontalRadius.get(); h++) {
                     for (int d = -h + 1; d <= h - 1; d++) {
                         //Front
-                        if (BlockUtils.place(bp.add(h, vOffset, d), item, rotate.get(), 50, renderSwing.get(), true)) {
+                        if (BlockUtils.place(bp.add(h, vOffset, d), item, rotate.get(), BLOCK_PLACE_DELAY_MS, renderSwing.get(), true)) {
                             renderBlocks.add(renderBlockPool.get().set(bp.add(h, vOffset, d)));
                         }
                         //Back
-                        if (BlockUtils.place(bp.add(-h, vOffset, d), item, rotate.get(), 50, renderSwing.get(), true)) {
+                        if (BlockUtils.place(bp.add(-h, vOffset, d), item, rotate.get(), BLOCK_PLACE_DELAY_MS, renderSwing.get(), true)) {
                             renderBlocks.add(renderBlockPool.get().set(bp.add(-h, vOffset, d)));
                         }
 
                         //Left
-                        if (BlockUtils.place(bp.add(d, vOffset, h), item, rotate.get(), 50, renderSwing.get(), true)) {
+                        if (BlockUtils.place(bp.add(d, vOffset, h), item, rotate.get(), BLOCK_PLACE_DELAY_MS, renderSwing.get(), true)) {
                             renderBlocks.add(renderBlockPool.get().set(bp.add(d, vOffset, h)));
                         }
 
                         //Right
-                        if (BlockUtils.place(bp.add(d, vOffset, -h), item, rotate.get(), 50, renderSwing.get(), true)) {
+                        if (BlockUtils.place(bp.add(d, vOffset, -h), item, rotate.get(), BLOCK_PLACE_DELAY_MS, renderSwing.get(), true)) {
                             renderBlocks.add(renderBlockPool.get().set(bp.add(d, vOffset, -h)));
                         }
                     }
                     //Diagonals
-                    if (BlockUtils.place(bp.add(h, vOffset, -h), item, rotate.get(), 50, renderSwing.get(), true)) {
+                    if (BlockUtils.place(bp.add(h, vOffset, -h), item, rotate.get(), BLOCK_PLACE_DELAY_MS, renderSwing.get(), true)) {
                         renderBlocks.add(renderBlockPool.get().set(bp.add(h, vOffset, -h)));
                     }
 
-                    if (BlockUtils.place(bp.add(-h, vOffset, h), item, rotate.get(), 50, renderSwing.get(), true)) {
+                    if (BlockUtils.place(bp.add(-h, vOffset, h), item, rotate.get(), BLOCK_PLACE_DELAY_MS, renderSwing.get(), true)) {
                         renderBlocks.add(renderBlockPool.get().set(bp.add(-h, vOffset, h)));
                     }
 
-                    if (BlockUtils.place(bp.add(h, vOffset, h), item, rotate.get(), 50, renderSwing.get(), true)) {
+                    if (BlockUtils.place(bp.add(h, vOffset, h), item, rotate.get(), BLOCK_PLACE_DELAY_MS, renderSwing.get(), true)) {
                         renderBlocks.add(renderBlockPool.get().set(bp.add(h, vOffset, h)));
                     }
 
-                    if (BlockUtils.place(bp.add(-h, vOffset, -h), item, rotate.get(), 50, renderSwing.get(), true)) {
+                    if (BlockUtils.place(bp.add(-h, vOffset, -h), item, rotate.get(), BLOCK_PLACE_DELAY_MS, renderSwing.get(), true)) {
                         renderBlocks.add(renderBlockPool.get().set(bp.add(-h, vOffset, -h)));
                     }
 
@@ -443,7 +452,7 @@ public class BetterScaffold extends StainlessModule {
 
         public RenderBlock set(BlockPos blockPos) {
             pos.set(blockPos);
-            ticks = 8;
+            ticks = RENDER_FADE_TICKS;
 
             return this;
         }
@@ -456,8 +465,8 @@ public class BetterScaffold extends StainlessModule {
             int preSideA = sides.a;
             int preLineA = lines.a;
 
-            sides.a *= (double) ticks / 8;
-            lines.a *= (double) ticks / 8;
+            sides.a *= (double) ticks / RENDER_FADE_TICKS;
+            lines.a *= (double) ticks / RENDER_FADE_TICKS;
 
             event.renderer.box(pos, sides, lines, shapeMode, 0);
 

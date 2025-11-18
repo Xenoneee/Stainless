@@ -2,6 +2,7 @@ package xenon.addon.stainless.modules;
 
 import xenon.addon.stainless.Stainless;
 import xenon.addon.stainless.StainlessModule;
+import xenon.addon.stainless.utils.ItemUtils;
 import meteordevelopment.meteorclient.events.game.OpenScreenEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
@@ -21,9 +22,9 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 
-// 1.21.x (food data component)
-import net.minecraft.component.DataComponentTypes;
-
+/**
+ * Automatically drops concrete (or other falling blocks) on enemies.
+ */
 public class AutoConcrete extends StainlessModule {
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
 
@@ -112,9 +113,9 @@ public class AutoConcrete extends StainlessModule {
             return;
         }
 
-        // ----- Pause While Eating (same detection approach as AutoMinePlus) -----
+        // ----- Pause While Eating -----
         if (pauseWhileEating.get() && mc.player != null) {
-            boolean eatingNow = mc.player.isUsingItem() && isFood(mc.player.getActiveItem());
+            boolean eatingNow = mc.player.isUsingItem() && ItemUtils.isFood(mc.player.getActiveItem());
             if (eatingNow) {
                 wasEating = true;
                 return; // pause all actions for this tick
@@ -236,11 +237,6 @@ public class AutoConcrete extends StainlessModule {
             if (mc.world.getBlockState(pos.offset(dir)).isAir()) return false;
         }
         return true;
-    }
-
-    // Same helper signature/logic as in AutoMinePlus
-    private boolean isFood(ItemStack stack) {
-        return stack != null && !stack.isEmpty() && stack.get(DataComponentTypes.FOOD) != null;
     }
 
     @Override

@@ -147,10 +147,10 @@ public class AntiFeetplace extends StainlessModule {
     private BlockPos belowPos = null;      // ALWAYS surround.down()
     private Direction outwardDir = null;   // feet -> surround (toward you), used to bias side order
 
-    // tick & rate-limit counters
-    private int tapCounter = 0;
-    private int ticksCounter = 0;
-    private int tickCounter = 0;
+    // tick & rate-limit counters (renamed for clarity)
+    private int tapAttemptsCount = 0;      // Number of tap attempts made
+    private int stateTicksElapsed = 0;     // Ticks elapsed in current state
+    private int globalTickCounter = 0;     // Global tick counter
     private int nextMineAllowedAt = 0;
 
     public AntiFeetplace() {
@@ -166,7 +166,7 @@ public class AntiFeetplace extends StainlessModule {
     private void onTick(TickEvent.Post e) {
         if (mc.player == null || mc.world == null) return;
 
-        tickCounter++;
+        globalTickCounter++;
 
         switch (stage) {
             case SELECT -> {
@@ -232,8 +232,8 @@ public class AntiFeetplace extends StainlessModule {
                 surroundPos = best;
                 belowPos = best.down();
                 outwardDir = bestDir;
-                tapCounter = 0;
-                ticksCounter = 0;
+                tapAttemptsCount = 0;
+                stateTicksElapsed = 0;
 
                 BlockState belowState = mc.world.getBlockState(belowPos);
 
@@ -254,16 +254,16 @@ public class AntiFeetplace extends StainlessModule {
 
                 BlockState bs = mc.world.getBlockState(belowPos);
                 if (bs.isOf(Blocks.ENDER_CHEST)) { stage = waitOrYieldAfterChest(); return; }
-                if (bs.isAir()) { tapCounter = 0; stage = Stage.RETARGET_SURROUND_TAP; return; }
+                if (bs.isAir()) { tapAttemptsCount = 0; stage = Stage.RETARGET_SURROUND_TAP; return; }
                 if (bs.isOf(Blocks.BEDROCK) && allowBedrockBreak.get()) {
                     if (!(skipBedrockBottomLayer.get() && belowPos.getY() <= mc.world.getBottomY())) {
-                        tapCounter = 0; stage = Stage.BREAK_BEDROCK_HOLD; return;
+                        tapAttemptsCount = 0; stage = Stage.BREAK_BEDROCK_HOLD; return;
                     } else { stage = Stage.SELECT; return; }
                 }
 
                 tapBlockOnce(belowPos);
-                if (++tapCounter >= tapTicksBelow.get()) {
-                    tapCounter = 0;
+                if (++tapAttemptsCount >= tapTicksBelow.get()) {
+                    tapAttemptsCount = 0;
                     stage = Stage.RETARGET_SURROUND_TAP;
                 }
             }
@@ -272,19 +272,19 @@ public class AntiFeetplace extends StainlessModule {
                 if (!validTarget()) { stage = Stage.SELECT; return; }
 
                 BlockState bs = mc.world.getBlockState(belowPos);
-                if (bs.isAir()) { ticksCounter = 0; stage = Stage.RETARGET_SURROUND_TAP; return; }
+                if (bs.isAir()) { stateTicksElapsed = 0; stage = Stage.RETARGET_SURROUND_TAP; return; }
                 if (bs.isOf(Blocks.ENDER_CHEST)) { stage = waitOrYieldAfterChest(); return; }
                 if (skipBedrockBottomLayer.get() && belowPos.getY() <= mc.world.getBottomY()) { stage = Stage.SELECT; return; }
 
                 mineOnce(belowPos); // sustained hold (rate-limited)
-                if (++ticksCounter >= bedrockHoldMaxTicks.get()) stage = Stage.SELECT;
+                if (++stateTicksElapsed >= bedrockHoldMaxTicks.get()) stage = Stage.SELECT;
             }
 
             case RETARGET_SURROUND_TAP -> {
                 if (!validTarget()) { stage = Stage.SELECT; return; }
                 tapBlockOnce(surroundPos); // ensure rebreak sticks to surround
-                if (++tapCounter >= tapTicksSurround.get()) {
-                    tapCounter = 0;
+                if (++tapAttemptsCount >= tapTicksSurround.get()) {
+                    tapAttemptsCount = 0;
                     stage = Stage.PLACE_ECHEST;
                 }
             }
@@ -301,7 +301,7 @@ public class AntiFeetplace extends StainlessModule {
                 if (!chest.found()) { stage = Stage.SELECT; return; }
 
                 if (!BlockUtils.canPlace(placeAt)) {
-                    if (++tapCounter > 20) { tapCounter = 0; stage = Stage.SELECT; }
+                    if (++tapAttemptsCount > 20) { tapAttemptsCount = 0; stage = Stage.SELECT; }
                     return;
                 }
 
@@ -313,8 +313,8 @@ public class AntiFeetplace extends StainlessModule {
                 boolean placed = BlockUtils.place(placeAt, chest, false, 50, renderPlace.get());
                 if (placed) {
                     stage = placeBridge.get() ? Stage.PLACE_BRIDGE : waitOrYieldAfterChest();
-                } else if (++tapCounter > 10) {
-                    tapCounter = 0; stage = Stage.SELECT;
+                } else if (++tapAttemptsCount > 10) {
+                    tapAttemptsCount = 0; stage = Stage.SELECT;
                 }
             }
 
@@ -325,9 +325,9 @@ public class AntiFeetplace extends StainlessModule {
 
                 // Wait a moment if chest not yet visible client-side (for neighbor face)
                 if (!mc.world.getBlockState(belowPos).isOf(Blocks.ENDER_CHEST)) {
-                    if (++ticksCounter < 5) return;
+                    if (++stateTicksElapsed < 5) return;
                 }
-                ticksCounter = 0;
+                stateTicksElapsed = 0;
 
                 // Try all four sides: bias toward us first, then opposite, then left/right
                 Direction bias = outwardDir != null ? outwardDir : Direction.NORTH;
@@ -371,12 +371,12 @@ public class AntiFeetplace extends StainlessModule {
                 }
 
                 // None worked this tick; wait and re-try sides
-                if (++tapCounter > 10) { tapCounter = 0; stage = Stage.SELECT; } // give up and reselect if it keeps failing
+                if (++tapAttemptsCount > 10) { tapAttemptsCount = 0; stage = Stage.SELECT; } // give up and reselect if it keeps failing
             }
 
             case HOLD -> {
                 if (!validTarget()) { stage = Stage.SELECT; return; }
-                if (++ticksCounter >= postPlacePause.get()) stage = Stage.SELECT;
+                if (++stateTicksElapsed >= postPlacePause.get()) stage = Stage.SELECT;
             }
 
             case WAIT_CHEST -> {
@@ -393,12 +393,12 @@ public class AntiFeetplace extends StainlessModule {
                     }
                 }
 
-                if (maxWaitChestTicks.get() > 0 && ++ticksCounter >= maxWaitChestTicks.get()) { stage = Stage.SELECT; return; }
+                if (maxWaitChestTicks.get() > 0 && ++stateTicksElapsed >= maxWaitChestTicks.get()) { stage = Stage.SELECT; return; }
                 if (chestPresent) return;
 
                 // Chest gone → resume sequence on same side
-                ticksCounter = 0;
-                tapCounter = 0;
+                stateTicksElapsed = 0;
+                tapAttemptsCount = 0;
 
                 BlockState bs = mc.world.getBlockState(belowPos);
                 if (bs.isAir()) stage = Stage.RETARGET_SURROUND_TAP;               // retarget -> place chest again
@@ -418,20 +418,20 @@ public class AntiFeetplace extends StainlessModule {
         surroundPos = null;
         belowPos = null;
         outwardDir = null;
-        tapCounter = 0;
-        ticksCounter = 0;
+        tapAttemptsCount = 0;
+        stateTicksElapsed = 0;
         nextMineAllowedAt = 0;
     }
 
     private Stage waitOrYieldAfterChest() {
         if (disableAfterPlace.get()) return nextAfterPlaced();
-        if (waitWhileChestPresent.get()) { ticksCounter = 0; return Stage.WAIT_CHEST; }
-        ticksCounter = 0; return Stage.HOLD;
+        if (waitWhileChestPresent.get()) { stateTicksElapsed = 0; return Stage.WAIT_CHEST; }
+        stateTicksElapsed = 0; return Stage.HOLD;
     }
 
     private Stage nextAfterPlaced() {
         if (disableAfterPlace.get()) { this.toggle(); return Stage.SELECT; }
-        ticksCounter = 0; return Stage.HOLD;
+        stateTicksElapsed = 0; return Stage.HOLD;
     }
 
     private boolean validTarget() {
@@ -477,7 +477,7 @@ public class AntiFeetplace extends StainlessModule {
     private boolean clearOrWait(BlockPos pos, int maxTicks) {
         if (mc.world.getBlockState(pos).isAir()) return true;
         if (!bridgeMineIfBlocking.get()) return false;
-        if (ticksCounter++ >= maxTicks) { ticksCounter = 0; stage = waitOrYieldAfterChest(); return false; }
+        if (stateTicksElapsed++ >= maxTicks) { stateTicksElapsed = 0; stage = waitOrYieldAfterChest(); return false; }
         mineOnce(pos);
         return false; // call again next tick
     }

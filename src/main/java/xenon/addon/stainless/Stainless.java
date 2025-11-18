@@ -5,11 +5,14 @@ import meteordevelopment.meteorclient.addons.MeteorAddon;
 import meteordevelopment.meteorclient.systems.config.Config;
 import meteordevelopment.meteorclient.systems.modules.Category;
 import meteordevelopment.meteorclient.systems.modules.Modules;
-import net.fabricmc.loader.impl.util.log.Log;
 import net.minecraft.item.Items;
 import org.slf4j.Logger;
 import xenon.addon.stainless.modules.*;
 
+/**
+ * Main addon class for the Stainless Meteor Client addon.
+ * Provides various combat and utility modules for Minecraft PvP.
+ */
 public class Stainless extends MeteorAddon {
     public static final Logger LOG = LogUtils.getLogger();
 
@@ -19,12 +22,12 @@ public class Stainless extends MeteorAddon {
     public void onInitialize() {
         LOG.info("Initializing Stainless");
 
-        initializeModules(Modules.get());
+        initializeModules();
         Config.get().chatFeedback.set(false);
         Config.get().save();
     }
 
-        private void initializeModules(Modules modules) {
+    private void initializeModules() {
         Modules.get().add(new AntiConcrete());
         Modules.get().add(new AntiConcreteDetection());
         Modules.get().add(new AntiFeetplace());

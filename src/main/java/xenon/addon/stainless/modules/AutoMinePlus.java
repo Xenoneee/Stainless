@@ -2,6 +2,7 @@ package xenon.addon.stainless.modules;
 
 import xenon.addon.stainless.Stainless;
 import xenon.addon.stainless.StainlessModule;
+import xenon.addon.stainless.utils.ItemUtils;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
@@ -19,19 +20,17 @@ import meteordevelopment.orbit.EventHandler;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
-import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.Items;
-import net.minecraft.item.ItemStack;
 import net.minecraft.util.Hand;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
 
-// 1.21.x (food data component)
-import net.minecraft.component.DataComponentTypes;
-
+/**
+ * Advanced mining module with bedrock mining capabilities and target tracking.
+ */
 public class AutoMinePlus extends StainlessModule {
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
     private final SettingGroup sgRender  = settings.createGroup("Render");
@@ -227,7 +226,7 @@ public class AutoMinePlus extends StainlessModule {
 
         // pause while eating
         if (pauseWhileEating.get() && mc.player != null) {
-            boolean eatingNow = mc.player.isUsingItem() && isFood(mc.player.getActiveItem());
+            boolean eatingNow = mc.player.isUsingItem() && ItemUtils.isFood(mc.player.getActiveItem());
             if (eatingNow) {
                 if (!wasEating) { chat("Paused: eating."); wasEating = true; }
                 // no mining; don't advance progress
@@ -262,12 +261,13 @@ public class AutoMinePlus extends StainlessModule {
 
         // 2) Acquire/refresh target
         target = null;
-        double closestDistance = targetRange.get() * targetRange.get();
+        double targetRangeSquared = targetRange.get() * targetRange.get();
+        double closestDistance = targetRangeSquared;
 
         for (PlayerEntity player : mc.world.getPlayers()) {
             if (player == mc.player || player.isCreative() || player.isSpectator()) continue;
             if (ignoreFriends.get() && Friends.get().isFriend(player)) continue;
-            if (ignoreNaked.get() && isNaked(player)) continue;
+            if (ignoreNaked.get() && xenon.addon.stainless.utils.PlayerUtils.isNaked(player)) continue;
 
             double distance = player.squaredDistanceTo(mc.player);
             if (distance <= closestDistance) {
@@ -284,10 +284,11 @@ public class AutoMinePlus extends StainlessModule {
 
         // 3) Prefer bedrock in the target's lower hitbox
         boolean handledStandingBedrock = false;
+        double breakRangeSquared = breakRange.get() * breakRange.get();
         if (mineBedrock.get() && prioritizePlayerBedrock.get()) {
             BlockPos lowerHitboxPos = target.getBlockPos();
             if (mc.world.getBlockState(lowerHitboxPos).getBlock() == Blocks.BEDROCK
-                && PlayerUtils.squaredDistanceTo(lowerHitboxPos) <= breakRange.get() * breakRange.get()) {
+                && PlayerUtils.squaredDistanceTo(lowerHitboxPos) <= breakRangeSquared) {
                 targetPos = lowerHitboxPos;
                 handledStandingBedrock = true;
                 chat("Breaking bedrock in target's lower hitbox.");
@@ -306,15 +307,16 @@ public class AutoMinePlus extends StainlessModule {
             chat(blk == Blocks.BEDROCK ? "Breaking surrounding bedrock." : "Breaking surrounding block: " + blk.getName().getString());
         }
 
-        if (PlayerUtils.squaredDistanceTo(targetPos) > breakRange.get() * breakRange.get()) {
+        if (PlayerUtils.squaredDistanceTo(targetPos) > breakRangeSquared) {
             updateBreakProgress();
             return;
         }
 
         // Support placement
+        double placeRangeSquared = placeRange.get() * placeRange.get();
         if (support.get()
             && mc.world.getBlockState(targetPos.down()).isAir()
-            && PlayerUtils.squaredDistanceTo(targetPos.down()) <= placeRange.get() * placeRange.get()) {
+            && PlayerUtils.squaredDistanceTo(targetPos.down()) <= placeRangeSquared) {
             BlockUtils.place(targetPos.down(), InvUtils.findInHotbar(Items.OBSIDIAN), rotate.get(), 0, true);
         }
 
@@ -373,12 +375,13 @@ public class AutoMinePlus extends StainlessModule {
      */
     private BlockPos findCityBlock(PlayerEntity target) {
         BlockPos pos = target.getBlockPos();
+        double breakRangeSquared = breakRange.get() * breakRange.get();
 
         // Pass 1: bedrock
         if (mineBedrock.get()) {
             for (Direction dir : Direction.Type.HORIZONTAL) {
                 BlockPos off = pos.offset(dir);
-                if (PlayerUtils.squaredDistanceTo(off) > breakRange.get() * breakRange.get()) continue;
+                if (PlayerUtils.squaredDistanceTo(off) > breakRangeSquared) continue;
                 if (mc.world.getBlockState(off).getBlock() == Blocks.BEDROCK) return off;
             }
         }
@@ -388,24 +391,13 @@ public class AutoMinePlus extends StainlessModule {
         // Pass 2: any solid (non-air, non-liquid, not bedrock)
         for (Direction dir : Direction.Type.HORIZONTAL) {
             BlockPos off = pos.offset(dir);
-            if (PlayerUtils.squaredDistanceTo(off) > breakRange.get() * breakRange.get()) continue;
+            if (PlayerUtils.squaredDistanceTo(off) > breakRangeSquared) continue;
             if (!mc.world.getFluidState(off).isEmpty()) continue;
             Block b = mc.world.getBlockState(off).getBlock();
             if (b == Blocks.AIR || b == Blocks.BEDROCK) continue;
             return off;
         }
         return null;
-    }
-
-    private boolean isNaked(PlayerEntity p) {
-        return p.getEquippedStack(EquipmentSlot.HEAD).isEmpty()
-            && p.getEquippedStack(EquipmentSlot.CHEST).isEmpty()
-            && p.getEquippedStack(EquipmentSlot.LEGS).isEmpty()
-            && p.getEquippedStack(EquipmentSlot.FEET).isEmpty();
-    }
-
-    private boolean isFood(ItemStack stack) {
-        return stack != null && !stack.isEmpty() && stack.get(DataComponentTypes.FOOD) != null;
     }
 
     // ----------gradient render----------

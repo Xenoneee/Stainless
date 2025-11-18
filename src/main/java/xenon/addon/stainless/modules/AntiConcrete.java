@@ -16,9 +16,14 @@ import net.minecraft.block.Blocks;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.FallingBlockEntity;
 import net.minecraft.item.Item;
+import net.minecraft.registry.tag.BlockTags;
+import net.minecraft.registry.tag.ItemTags;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 
+/**
+ * Automatically places buttons to disrupt concrete drops from enemies.
+ */
 public class AntiConcrete extends StainlessModule {
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
 
@@ -163,18 +168,48 @@ public class AntiConcrete extends StainlessModule {
         return false;
     }
 
+    /**
+     * Checks if the block is a falling trap block (concrete powder or other falling blocks).
+     * Uses explicit block comparison instead of fragile string matching.
+     */
     private boolean isFallingTrapBlock(Block block) {
-        return block.toString().contains("concrete_powder") ||
-            block == Blocks.GRAVEL || block == Blocks.SAND || block == Blocks.RED_SAND ||
-            block == Blocks.SUSPICIOUS_SAND || block == Blocks.SUSPICIOUS_GRAVEL;
+        // Check all concrete powder variants
+        return block == Blocks.WHITE_CONCRETE_POWDER
+            || block == Blocks.LIGHT_GRAY_CONCRETE_POWDER
+            || block == Blocks.GRAY_CONCRETE_POWDER
+            || block == Blocks.BLACK_CONCRETE_POWDER
+            || block == Blocks.BROWN_CONCRETE_POWDER
+            || block == Blocks.RED_CONCRETE_POWDER
+            || block == Blocks.ORANGE_CONCRETE_POWDER
+            || block == Blocks.YELLOW_CONCRETE_POWDER
+            || block == Blocks.LIME_CONCRETE_POWDER
+            || block == Blocks.GREEN_CONCRETE_POWDER
+            || block == Blocks.CYAN_CONCRETE_POWDER
+            || block == Blocks.LIGHT_BLUE_CONCRETE_POWDER
+            || block == Blocks.BLUE_CONCRETE_POWDER
+            || block == Blocks.PURPLE_CONCRETE_POWDER
+            || block == Blocks.MAGENTA_CONCRETE_POWDER
+            || block == Blocks.PINK_CONCRETE_POWDER
+            // Other falling blocks
+            || block == Blocks.GRAVEL
+            || block == Blocks.SAND
+            || block == Blocks.RED_SAND
+            || block == Blocks.SUSPICIOUS_SAND
+            || block == Blocks.SUSPICIOUS_GRAVEL;
     }
 
+    /**
+     * Checks if the block is a button using Minecraft's tag system.
+     */
     private boolean isButtonBlock(Block block) {
-        return block.toString().toLowerCase().contains("button");
+        return block.getRegistryEntry().isIn(BlockTags.BUTTONS);
     }
 
+    /**
+     * Checks if the item is a button using Minecraft's tag system.
+     */
     private boolean isButton(Item item) {
-        return item.toString().toLowerCase().contains("button");
+        return item.getRegistryEntry().isIn(ItemTags.BUTTONS);
     }
 
     public enum Mode {

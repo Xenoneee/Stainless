@@ -7,12 +7,17 @@ import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.utils.player.Rotations;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.block.Block;
+import net.minecraft.block.Blocks;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.registry.tag.BlockTags;
 import net.minecraft.util.Hand;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 
+/**
+ * Breaks buttons and torches inside enemy hitboxes to disrupt concrete placement.
+ */
 public class AntiConcreteDetection extends StainlessModule {
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
 
@@ -60,12 +65,25 @@ public class AntiConcreteDetection extends StainlessModule {
         }
     }
 
+    /**
+     * Checks if the block is a button using Minecraft's tag system.
+     * This is more reliable than string matching as it works regardless of locale.
+     */
     private boolean isButtonBlock(Block block) {
-        return block.getTranslationKey().toLowerCase().contains("button");
+        return block.getRegistryEntry().isIn(BlockTags.BUTTONS);
     }
 
+    /**
+     * Checks if the block is a torch.
+     * Uses explicit block comparison for torch types.
+     */
     private boolean isTorchBlock(Block block) {
-        return block.getTranslationKey().toLowerCase().contains("torch");
+        return block == Blocks.TORCH
+            || block == Blocks.WALL_TORCH
+            || block == Blocks.SOUL_TORCH
+            || block == Blocks.SOUL_WALL_TORCH
+            || block == Blocks.REDSTONE_TORCH
+            || block == Blocks.REDSTONE_WALL_TORCH;
     }
 
     public enum BreakMode {

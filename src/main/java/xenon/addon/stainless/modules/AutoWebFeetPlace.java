@@ -2,6 +2,8 @@ package xenon.addon.stainless.modules;
 
 import xenon.addon.stainless.Stainless;
 import xenon.addon.stainless.StainlessModule;
+import xenon.addon.stainless.utils.ItemUtils;
+import xenon.addon.stainless.utils.PlayerUtils;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.friends.Friends;
@@ -10,7 +12,6 @@ import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.meteorclient.utils.player.Rotations;
 import meteordevelopment.meteorclient.utils.world.BlockUtils;
 import meteordevelopment.orbit.EventHandler;
-import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -20,13 +21,12 @@ import net.minecraft.registry.tag.TagKey;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 
-// 1.21.x food detection
-import net.minecraft.component.DataComponentTypes;
-
 import java.util.HashSet;
 import java.util.Set;
 
-
+/**
+ * Automatically places cobwebs, ladders, or buttons in broken surround blocks.
+ */
 public class AutoWebFeetPlace extends StainlessModule {
     public enum PlaceItem { Cobweb, Ladder, Button }
 
@@ -165,8 +165,8 @@ public class AutoWebFeetPlace extends StainlessModule {
     private void onTick(TickEvent.Post event) {
         if (mc.player == null || mc.world == null) return;
 
-        // Pause while eating (DataComponentTypes.FOOD like AutoMinePlus)
-        if (pauseWhileEating.get() && mc.player.isUsingItem() && isFood(mc.player.getActiveItem())) {
+        // Pause while eating
+        if (pauseWhileEating.get() && mc.player.isUsingItem() && ItemUtils.isFood(mc.player.getActiveItem())) {
             return;
         }
 
@@ -210,11 +210,6 @@ public class AutoWebFeetPlace extends StainlessModule {
         placeAt(broken, fir);
     }
 
-    // ---------- Food util (copied style from AutoMinePlus) ----------
-    private boolean isFood(ItemStack stack) {
-        return stack != null && !stack.isEmpty() && stack.get(DataComponentTypes.FOOD) != null;
-    }
-
     // ---------- Surround helpers ----------
     private BlockPos pickBrokenSlot() {
         BlockPos chosen = null;
@@ -254,22 +249,13 @@ public class AutoWebFeetPlace extends StainlessModule {
             if (p == mc.player) continue;
             if (!p.isAlive()) continue;
             if (ignoreFriends.get() && Friends.get().isFriend(p)) continue;
-            if (ignoreNaked.get() && isNaked(p)) continue;
+            if (ignoreNaked.get() && PlayerUtils.isNaked(p)) continue;
 
             double d = mc.player.distanceTo(p);
             if (d <= range.get() && d < bestDist) { bestDist = d; best = p; }
         }
         return best;
     }
-
-    private boolean isNaked(PlayerEntity p) {
-        return isEmpty(p.getEquippedStack(EquipmentSlot.HEAD))
-            && isEmpty(p.getEquippedStack(EquipmentSlot.CHEST))
-            && isEmpty(p.getEquippedStack(EquipmentSlot.LEGS))
-            && isEmpty(p.getEquippedStack(EquipmentSlot.FEET));
-    }
-
-    private boolean isEmpty(ItemStack s) { return s == null || s.isEmpty(); }
 
     // ---------- Placement ----------
     private void placeAt(BlockPos pos, FindItemResult fir) {
