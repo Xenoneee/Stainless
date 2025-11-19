@@ -54,8 +54,8 @@ public class ShaderManager {
         }
 
         // Create new framebuffers
-        entityFramebuffer = new SimpleFramebuffer(width, height, true);
-        outlineFramebuffer = new SimpleFramebuffer(width, height, true);
+        entityFramebuffer = new SimpleFramebuffer("stainless_entity", width, height, true);
+        outlineFramebuffer = new SimpleFramebuffer("stainless_outline", width, height, true);
 
         lastWidth = width;
         lastHeight = height;
@@ -109,15 +109,15 @@ public class ShaderManager {
             // Save current framebuffer
             Framebuffer mainFramebuffer = mc.getFramebuffer();
 
-            // Clear and bind entity framebuffer
-            entityFramebuffer.clear(MinecraftClient.IS_SYSTEM_MAC);
-            entityFramebuffer.beginWrite(true);
+            // Clear and setup entity framebuffer
+            entityFramebuffer.clear();
+            entityFramebuffer.setViewportSize(mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight());
 
             // Render content to entity framebuffer
             renderContent.run();
 
             // Switch back to main framebuffer
-            mainFramebuffer.beginWrite(true);
+            mainFramebuffer.setViewportSize(mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight());
 
             // Set up shader uniforms
             if (setupUniforms != null) {

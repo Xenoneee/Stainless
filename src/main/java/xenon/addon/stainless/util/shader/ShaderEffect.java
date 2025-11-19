@@ -111,8 +111,8 @@ public class ShaderEffect {
             int height = mc.getWindow().getFramebufferHeight();
 
             // Draw input framebuffer to main framebuffer
-            mc.getFramebuffer().beginWrite(true);
-            input.draw(width, height, false);
+            mc.getFramebuffer().setViewportSize(width, height);
+            input.copyColorFrom(mc.getFramebuffer());
 
             GL11.glDepthMask(true);
             GL11.glEnable(GL11.GL_DEPTH_TEST);
