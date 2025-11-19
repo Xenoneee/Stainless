@@ -36,6 +36,7 @@ public class Stainless extends MeteorAddon {
         Modules.get().add(new AutoWebFeetPlace());
         Modules.get().add(new BetterScaffold());
         Modules.get().add(new EntityAnimations());
+        Modules.get().add(new Shader());
     }
 
     @Override
