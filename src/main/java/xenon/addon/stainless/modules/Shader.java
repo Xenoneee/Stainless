@@ -333,10 +333,12 @@ public class Shader extends StainlessModule {
             float tickDelta = event.tickDelta;
             MatrixStack matrices = event.matrices;
 
-            // Calculate interpolated position using prevX/prevY/prevZ
-            double x = MathHelper.lerp(tickDelta, entity.prevX, entity.getX()) - camera.x;
-            double y = MathHelper.lerp(tickDelta, entity.prevY, entity.getY()) - camera.y;
-            double z = MathHelper.lerp(tickDelta, entity.prevZ, entity.getZ()) - camera.z;
+            // Calculate entity position relative to camera
+            // Note: Using current position as entity interpolation fields vary by Minecraft version
+            Vec3d entityPos = entity.getPos();
+            double x = entityPos.x - camera.x;
+            double y = entityPos.y - camera.y;
+            double z = entityPos.z - camera.z;
 
             // Get entity renderer
             @SuppressWarnings("unchecked")

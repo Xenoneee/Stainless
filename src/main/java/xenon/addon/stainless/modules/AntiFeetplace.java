@@ -388,7 +388,7 @@ public class AntiFeetplace extends StainlessModule {
                 // Keep the hole open ONLY if there's an actual block there
                 if (retargetWhileChestPresent.get() && surroundPos != null) {
                     if (!mc.world.getBlockState(surroundPos).isAir()
-                        && (tickCounter % Math.max(1, waitRetargetInterval.get()) == 0)) {
+                        && (globalTickCounter % Math.max(1, waitRetargetInterval.get()) == 0)) {
                         tapBlockOnce(surroundPos);
                     }
                 }
@@ -444,7 +444,7 @@ public class AntiFeetplace extends StainlessModule {
     }
 
     private void tapBlockOnce(BlockPos pos) {
-        if (tickCounter < nextMineAllowedAt) return;
+        if (globalTickCounter < nextMineAllowedAt) return;
         BlockState st = mc.world.getBlockState(pos);
         if (st.isAir() || st.isOf(Blocks.ENDER_CHEST)) return; // never hit air/chest
         if (rotate.get()) {
@@ -455,11 +455,11 @@ public class AntiFeetplace extends StainlessModule {
         if (face == null) return;
         mc.interactionManager.updateBlockBreakingProgress(pos, face);
         mc.player.swingHand(Hand.MAIN_HAND);
-        nextMineAllowedAt = tickCounter + mineRateLimit.get();
+        nextMineAllowedAt = globalTickCounter + mineRateLimit.get();
     }
 
     private void mineOnce(BlockPos pos) {
-        if (tickCounter < nextMineAllowedAt) return;
+        if (globalTickCounter < nextMineAllowedAt) return;
         BlockState st = mc.world.getBlockState(pos);
         if (st.isAir() || st.isOf(Blocks.ENDER_CHEST)) return;
         if (rotate.get()) {
@@ -470,7 +470,7 @@ public class AntiFeetplace extends StainlessModule {
         if (face == null) return;
         mc.interactionManager.updateBlockBreakingProgress(pos, face);
         mc.player.swingHand(Hand.MAIN_HAND);
-        nextMineAllowedAt = tickCounter + mineRateLimit.get();
+        nextMineAllowedAt = globalTickCounter + mineRateLimit.get();
     }
 
     // Try to clear one position over multiple ticks (stays in the calling stage).

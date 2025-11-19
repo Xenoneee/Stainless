@@ -1,12 +1,9 @@
 package xenon.addon.stainless.util.shader;
 
-import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.*;
 import net.minecraft.util.Identifier;
 import org.lwjgl.opengl.GL11;
-import org.lwjgl.opengl.GL13;
-import org.lwjgl.opengl.GL30;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -97,40 +94,31 @@ public class ShaderEffect {
      * Render the shader effect
      */
     public void render(Framebuffer input) {
-        if (!loaded) return;
+        if (!loaded || input == null || mc == null || mc.getFramebuffer() == null) return;
 
         try {
             // Basic framebuffer blit without custom shaders
             // For proper shader effects, you'll need to implement custom shader loading
 
-            RenderSystem.disableBlend();
-            RenderSystem.disableDepthTest();
+            GL11.glDisable(GL11.GL_BLEND);
+            GL11.glDisable(GL11.GL_DEPTH_TEST);
             GL11.glDepthMask(false);
 
             applyUniforms();
-
-            // Bind input texture
-            GL13.glActiveTexture(GL13.GL_TEXTURE0);
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D, input.getColorAttachment());
-
-            // Bind main framebuffer
-            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, mc.getFramebuffer().fbo);
 
             // Blit the framebuffer content
             int width = mc.getWindow().getFramebufferWidth();
             int height = mc.getWindow().getFramebufferHeight();
 
-            GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, input.fbo);
-            GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, mc.getFramebuffer().fbo);
-            GL30.glBlitFramebuffer(
-                0, 0, width, height,
-                0, 0, width, height,
-                GL11.GL_COLOR_BUFFER_BIT, GL11.GL_NEAREST
-            );
+            // Blit from input to main framebuffer
+            input.bind(false);
+            mc.getFramebuffer().bind(true);
+
+            input.draw(width, height);
 
             GL11.glDepthMask(true);
-            RenderSystem.enableDepthTest();
-            RenderSystem.enableBlend();
+            GL11.glEnable(GL11.GL_DEPTH_TEST);
+            GL11.glEnable(GL11.GL_BLEND);
         } catch (Exception e) {
             // Silently handle rendering errors
         }

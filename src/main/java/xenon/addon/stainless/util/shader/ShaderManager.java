@@ -55,10 +55,7 @@ public class ShaderManager {
 
         // Create new framebuffers
         entityFramebuffer = new SimpleFramebuffer(width, height, true, MinecraftClient.IS_SYSTEM_MAC);
-        entityFramebuffer.setClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-
         outlineFramebuffer = new SimpleFramebuffer(width, height, true, MinecraftClient.IS_SYSTEM_MAC);
-        outlineFramebuffer.setClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
         lastWidth = width;
         lastHeight = height;
@@ -112,29 +109,28 @@ public class ShaderManager {
             // Save current framebuffer
             Framebuffer mainFramebuffer = mc.getFramebuffer();
 
-            // Clear entity framebuffer
-            entityFramebuffer.clear(MinecraftClient.IS_SYSTEM_MAC);
-            entityFramebuffer.beginWrite(true);
+            // Clear and bind entity framebuffer
+            entityFramebuffer.clear();
+            entityFramebuffer.bind(true);
 
-            // Clear with OpenGL directly
-            RenderSystem.clear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT, MinecraftClient.IS_SYSTEM_MAC);
+            // Render content to entity framebuffer
             renderContent.run();
 
             // Switch back to main framebuffer
-            mainFramebuffer.beginWrite(true);
+            mainFramebuffer.bind(true);
 
             // Set up shader uniforms
             if (setupUniforms != null) {
                 setupUniforms.run();
             }
 
-            // Apply shader effect
-            RenderSystem.enableBlend();
-            RenderSystem.blendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+            // Apply shader effect with blending
+            GL11.glEnable(GL11.GL_BLEND);
+            GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
 
             effect.render(entityFramebuffer);
 
-            RenderSystem.disableBlend();
+            GL11.glDisable(GL11.GL_BLEND);
         } catch (Exception e) {
             // Silently handle errors to prevent crashes
         }
