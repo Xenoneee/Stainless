@@ -54,8 +54,8 @@ public class ShaderManager {
         }
 
         // Create new framebuffers
-        entityFramebuffer = new SimpleFramebuffer(width, height, true, MinecraftClient.IS_SYSTEM_MAC);
-        outlineFramebuffer = new SimpleFramebuffer(width, height, true, MinecraftClient.IS_SYSTEM_MAC);
+        entityFramebuffer = new SimpleFramebuffer(width, height, true);
+        outlineFramebuffer = new SimpleFramebuffer(width, height, true);
 
         lastWidth = width;
         lastHeight = height;
@@ -110,14 +110,14 @@ public class ShaderManager {
             Framebuffer mainFramebuffer = mc.getFramebuffer();
 
             // Clear and bind entity framebuffer
-            entityFramebuffer.clear();
-            entityFramebuffer.bind(true);
+            entityFramebuffer.clear(MinecraftClient.IS_SYSTEM_MAC);
+            entityFramebuffer.beginWrite(true);
 
             // Render content to entity framebuffer
             renderContent.run();
 
             // Switch back to main framebuffer
-            mainFramebuffer.bind(true);
+            mainFramebuffer.beginWrite(true);
 
             // Set up shader uniforms
             if (setupUniforms != null) {

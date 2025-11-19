@@ -110,11 +110,9 @@ public class ShaderEffect {
             int width = mc.getWindow().getFramebufferWidth();
             int height = mc.getWindow().getFramebufferHeight();
 
-            // Blit from input to main framebuffer
-            input.bind(false);
-            mc.getFramebuffer().bind(true);
-
-            input.draw(width, height);
+            // Draw input framebuffer to main framebuffer
+            mc.getFramebuffer().beginWrite(true);
+            input.draw(width, height, false);
 
             GL11.glDepthMask(true);
             GL11.glEnable(GL11.GL_DEPTH_TEST);
