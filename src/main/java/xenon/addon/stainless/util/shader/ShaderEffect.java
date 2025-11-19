@@ -1,6 +1,6 @@
 package xenon.addon.stainless.util.shader;
 
-import com.mojang.blaze3d.platform.GlStateManager;
+import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.*;
 import net.minecraft.util.Identifier;
@@ -103,8 +103,8 @@ public class ShaderEffect {
             // Basic framebuffer blit without custom shaders
             // For proper shader effects, you'll need to implement custom shader loading
 
-            GlStateManager._disableBlend();
-            GlStateManager._disableDepthTest();
+            RenderSystem.disableBlend();
+            RenderSystem.disableDepthTest();
             GL11.glDepthMask(false);
 
             applyUniforms();
@@ -129,8 +129,8 @@ public class ShaderEffect {
             );
 
             GL11.glDepthMask(true);
-            GlStateManager._enableDepthTest();
-            GlStateManager._enableBlend();
+            RenderSystem.enableDepthTest();
+            RenderSystem.enableBlend();
         } catch (Exception e) {
             // Silently handle rendering errors
         }
