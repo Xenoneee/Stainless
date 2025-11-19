@@ -1,0 +1,62 @@
+{
+  "targets": [
+    "swap",
+    "previous"
+  ],
+  "passes": [
+    {
+      "name": "outline",
+      "intarget": "minecraft:main",
+      "outtarget": "swap",
+      "auxtargets": [
+        {
+          "name": "PrevSampler",
+          "id": "previous"
+        }
+      ],
+      "uniforms": [
+        {
+          "name": "InSize",
+          "values": [ 1.0, 1.0 ]
+        },
+        {
+          "name": "OutSize",
+          "values": [ 1.0, 1.0 ]
+        },
+        {
+          "name": "texelSize",
+          "values": [ 1.0, 1.0 ]
+        },
+        {
+          "name": "radius",
+          "values": [ 1.0 ]
+        },
+        {
+          "name": "samples",
+          "values": [ 4 ]
+        },
+        {
+          "name": "lineStrength",
+          "values": [ 1.0 ]
+        },
+        {
+          "name": "fillStrength",
+          "values": [ 0.5 ]
+        },
+        {
+          "name": "outlineColor",
+          "values": [ 1.0, 1.0, 1.0, 1.0 ]
+        },
+        {
+          "name": "fillColor",
+          "values": [ 0.5, 0.5, 0.5, 0.3 ]
+        }
+      ]
+    },
+    {
+      "name": "blit",
+      "intarget": "swap",
+      "outtarget": "minecraft:main"
+    }
+  ]
+}
