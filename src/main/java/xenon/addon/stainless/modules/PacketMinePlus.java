@@ -16,8 +16,8 @@ import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.item.ItemStack;
 import net.minecraft.network.packet.c2s.play.HandSwingC2SPacket;
 import net.minecraft.network.packet.c2s.play.PlayerActionC2SPacket;
+import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
 import net.minecraft.network.packet.s2c.play.BlockUpdateS2CPacket;
-import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.registry.tag.FluidTags;
 import net.minecraft.util.Hand;
@@ -72,9 +72,9 @@ public class PacketMinePlus extends StainlessModule {
         .build()
     );
 
-    private final Setting<Boolean> switchBack = sgGeneral.add(new BoolSetting.Builder()
-        .name("switch-back")
-        .description("Switch back to original slot after mining.")
+    private final Setting<Boolean> silentSwitch = sgGeneral.add(new BoolSetting.Builder()
+        .name("silent-switch")
+        .description("Switch tools via packets only (no visual change).")
         .defaultValue(true)
         .visible(autoSwitch::get)
         .build()
@@ -122,7 +122,6 @@ public class PacketMinePlus extends StainlessModule {
     // ==================== STATE ====================
     private MiningData currentMining;
     private MiningData previousMining;
-    private int originalSlot = -1;
     private long instantTimer = 0;
 
     // ==================== CONSTRUCTOR ====================
@@ -148,13 +147,11 @@ public class PacketMinePlus extends StainlessModule {
             abortMining(previousMining);
         }
         reset();
-        restoreSlot();
     }
 
     private void reset() {
         currentMining = null;
         previousMining = null;
-        originalSlot = -1;
         instantTimer = 0;
     }
 
@@ -178,7 +175,6 @@ public class PacketMinePlus extends StainlessModule {
         if (previousMining != null) {
             if (!isInRange(previousMining.pos)) {
                 previousMining = null;
-                restoreSlot();
             } else {
                 updateMining(previousMining);
             }
@@ -205,7 +201,6 @@ public class PacketMinePlus extends StainlessModule {
             packet.getState().isAir()) {
 
             previousMining = null;
-            restoreSlot();
         }
 
         // Clear current mining when block breaks
@@ -215,7 +210,6 @@ public class PacketMinePlus extends StainlessModule {
             !currentMining.shouldRemine) {
 
             currentMining = null;
-            restoreSlot();
         }
     }
 
@@ -256,11 +250,6 @@ public class PacketMinePlus extends StainlessModule {
             // Send start packets
             sendStartPackets(pos, direction);
 
-            // Switch to best tool
-            if (autoSwitch.get()) {
-                switchToBestTool(pos);
-            }
-
             if (chatInfo.get()) {
                 info("Started mining at " + pos.toShortString());
             }
@@ -279,7 +268,6 @@ public class PacketMinePlus extends StainlessModule {
             abortMining(previousMining);
             previousMining = null;
         }
-        restoreSlot();
     }
 
     /**
@@ -351,7 +339,7 @@ public class PacketMinePlus extends StainlessModule {
     private void updateMining(MiningData data) {
         if (data == null) return;
 
-        // Calculate damage this tick
+        // Calculate damage this tick using best tool
         double delta = calculateBlockBreakingDelta(data.pos);
         data.damage += delta;
         data.damage = Math.min(data.damage, 1.0);
@@ -368,9 +356,24 @@ public class PacketMinePlus extends StainlessModule {
     }
 
     private void attemptBreak(MiningData data) {
-        // Switch to tool if needed
+        int originalSlot = mc.player.getInventory().getSelectedSlot();
+        int toolSlot = -1;
+
+        // Find and switch to best tool
         if (autoSwitch.get()) {
-            switchToBestTool(data.pos);
+            BlockState state = mc.world.getBlockState(data.pos);
+            FindItemResult tool = InvUtils.findFastestTool(state);
+            if (tool.found() && tool.isHotbar() && tool.slot() != originalSlot) {
+                toolSlot = tool.slot();
+
+                if (silentSwitch.get()) {
+                    // Silent: send packet only, don't update client slot
+                    mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(toolSlot));
+                } else {
+                    // Normal: actually switch slot
+                    InvUtils.swap(toolSlot, false);
+                }
+            }
         }
 
         // Rotate if needed
@@ -381,6 +384,17 @@ public class PacketMinePlus extends StainlessModule {
         // Send break packets
         sendBreakPackets(data.pos, data.direction);
 
+        // Swap back
+        if (toolSlot != -1) {
+            if (silentSwitch.get()) {
+                // Silent: send packet to restore original slot
+                mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(originalSlot));
+            } else {
+                // Normal: actually switch back
+                InvUtils.swap(originalSlot, false);
+            }
+        }
+
         if (chatInfo.get()) {
             info("Broke block at " + data.pos.toShortString());
         }
@@ -389,20 +403,18 @@ public class PacketMinePlus extends StainlessModule {
         if (!reBreak.get()) {
             if (data == currentMining) {
                 currentMining = null;
-                restoreSlot();
             }
         } else if (instant.get()) {
+            // Instant re-break: immediately restart mining
             data.shouldRemine = true;
-            data.damage = breakProgress.get();
+            data.damage = 0; // Reset to 0 for instant restart
             instantTimer = System.currentTimeMillis();
+
+            // Send start packets immediately for instant re-mine
+            sendStartPackets(data.pos, data.direction);
         } else {
             // Reset and re-start
             startMining(data.pos, data.direction, true);
-        }
-
-        // Restore slot if needed
-        if (switchBack.get() && autoSwitch.get() && !data.shouldRemine) {
-            restoreSlot();
         }
     }
 
@@ -419,6 +431,24 @@ public class PacketMinePlus extends StainlessModule {
     // ==================== PACKET SENDING ====================
 
     private void sendStartPackets(BlockPos pos, Direction direction) {
+        int originalSlot = mc.player.getInventory().getSelectedSlot();
+        int toolSlot = -1;
+
+        // Find and switch to best tool for start packets
+        if (autoSwitch.get()) {
+            BlockState state = mc.world.getBlockState(pos);
+            FindItemResult tool = InvUtils.findFastestTool(state);
+            if (tool.found() && tool.isHotbar() && tool.slot() != originalSlot) {
+                toolSlot = tool.slot();
+
+                if (silentSwitch.get()) {
+                    mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(toolSlot));
+                } else {
+                    InvUtils.swap(toolSlot, false);
+                }
+            }
+        }
+
         if (doubleBreak.get()) {
             // Double break sequence
             mc.getNetworkHandler().sendPacket(new PlayerActionC2SPacket(
@@ -436,6 +466,15 @@ public class PacketMinePlus extends StainlessModule {
         }
 
         mc.getNetworkHandler().sendPacket(new HandSwingC2SPacket(Hand.MAIN_HAND));
+
+        // Swap back after sending start packets
+        if (toolSlot != -1) {
+            if (silentSwitch.get()) {
+                mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(originalSlot));
+            } else {
+                InvUtils.swap(originalSlot, false);
+            }
+        }
     }
 
     private void sendBreakPackets(BlockPos pos, Direction direction) {
@@ -450,48 +489,34 @@ public class PacketMinePlus extends StainlessModule {
         mc.getNetworkHandler().sendPacket(new HandSwingC2SPacket(Hand.MAIN_HAND));
     }
 
-    // ==================== TOOL SWITCHING ====================
-
-    private void switchToBestTool(BlockPos pos) {
-        if (mc.player == null) return;
-
-        // Save original slot first time (use public method)
-        if (originalSlot == -1) {
-            originalSlot = InvUtils.findInHotbar(mc.player.getMainHandStack().getItem()).slot();
-        }
-
-        BlockState state = mc.world.getBlockState(pos);
-        FindItemResult tool = InvUtils.findFastestTool(state);
-
-        if (tool.found() && tool.isHotbar()) {
-            InvUtils.swap(tool.slot(), false);
-        }
-    }
-
-    private void restoreSlot() {
-        if (originalSlot != -1 && mc.player != null) {
-            InvUtils.swap(originalSlot, false);
-            originalSlot = -1;
-        }
-    }
-
     // ==================== CALCULATIONS ====================
 
+    /**
+     * Calculate block breaking delta using the best available tool
+     */
     private double calculateBlockBreakingDelta(BlockPos pos) {
         BlockState state = mc.world.getBlockState(pos);
         float hardness = state.getHardness(mc.world, pos);
 
         if (hardness == -1.0f) return 0;
 
-        int i = canHarvest(state) ? 30 : 100;
-        return getBlockBreakingSpeed(state) / hardness / (float) i;
+        // Find best tool for accurate progress calculation
+        ItemStack tool = mc.player.getMainHandStack();
+        if (autoSwitch.get()) {
+            FindItemResult bestTool = InvUtils.findFastestTool(state);
+            if (bestTool.found() && bestTool.isHotbar()) {
+                tool = mc.player.getInventory().getStack(bestTool.slot());
+            }
+        }
+
+        int i = canHarvest(state, tool) ? 30 : 100;
+        return getBlockBreakingSpeed(state, tool) / hardness / (float) i;
     }
 
-    private boolean canHarvest(BlockState state) {
+    private boolean canHarvest(BlockState state, ItemStack tool) {
         // Check if block doesn't require a tool
         if (!state.isToolRequired()) return true;
 
-        ItemStack tool = mc.player.getMainHandStack();
         return tool.isSuitableFor(state);
     }
 
@@ -507,11 +532,10 @@ public class PacketMinePlus extends StainlessModule {
         return 0;
     }
 
-    private float getBlockBreakingSpeed(BlockState block) {
-        float speed = mc.player.getMainHandStack().getMiningSpeedMultiplier(block);
+    private float getBlockBreakingSpeed(BlockState block, ItemStack tool) {
+        float speed = tool.getMiningSpeedMultiplier(block);
 
         if (speed > 1.0f) {
-            ItemStack tool = mc.player.getMainHandStack();
             int efficiency = getEnchantmentLevel(tool, "efficiency");
 
             if (efficiency > 0 && !tool.isEmpty()) {

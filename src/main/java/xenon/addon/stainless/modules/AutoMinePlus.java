@@ -600,8 +600,12 @@ public class AutoMinePlus extends StainlessModule {
         // Check rotation allowance
         boolean allowActions = shouldAllowActions();
 
+        // Check if we should use vanilla mining for bedrock
+        boolean isBedrock = mc.world.getBlockState(targetPos).getBlock() == Blocks.BEDROCK;
+        boolean forceVanillaMining = isBedrock && bedrockOnly.get();
+
         // Use PacketMine or vanilla mining
-        if (usePacketMine.get() && packetMine != null && packetMine.isActive()) {
+        if (!forceVanillaMining && usePacketMine.get() && packetMine != null && packetMine.isActive()) {
             executePacketMining(allowActions);
         } else {
             executeVanillaMining(allowActions);
@@ -660,7 +664,10 @@ public class AutoMinePlus extends StainlessModule {
             }
         }
 
-        if (usePacketMine.get() && packetMine != null && packetMine.isActive()) {
+        // Always use vanilla mining for clearing upper bedrock when bedrockOnly is enabled
+        boolean forceVanillaMining = bedrockOnly.get();
+
+        if (!forceVanillaMining && usePacketMine.get() && packetMine != null && packetMine.isActive()) {
             if (packetMine.getCurrentPos() == null || !packetMine.getCurrentPos().equals(targetPos)) {
                 packetMine.startMining(targetPos, Direction.UP);
                 minedThisTick = true;
@@ -790,8 +797,12 @@ public class AutoMinePlus extends StainlessModule {
             return;
         }
 
-        // Use PacketMine progress if available
-        if (usePacketMine.get() && packetMine != null &&
+        // Check if we should skip PacketMine progress for bedrock in bedrockOnly mode
+        boolean isBedrock = mc.world.getBlockState(targetPos).getBlock() == Blocks.BEDROCK;
+        boolean forceVanillaProgress = isBedrock && bedrockOnly.get();
+
+        // Use PacketMine progress if available and not forcing vanilla
+        if (!forceVanillaProgress && usePacketMine.get() && packetMine != null &&
             packetMine.getCurrentPos() != null &&
             packetMine.getCurrentPos().equals(targetPos)) {
 
