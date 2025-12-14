@@ -10,6 +10,28 @@ import java.util.List;
 
 public class PearlAimCalculator {
 
+    // ---- Constants
+    private static final float MIN_PITCH = -89.9f;
+    private static final float MAX_PITCH = 89.9f;
+    private static final float YAW_NORMALIZATION = 360f;
+    private static final float YAW_LOWER_BOUND = -180f;
+    private static final float YAW_UPPER_BOUND = 180f;
+    private static final int MAX_FLIGHT_TICKS = 80;
+    private static final float[] YAW_WIGGLES = {0f, 7f, -7f, 12f, -12f};
+
+    private static final int FULL_CIRCLE_DEG_STEP = 15;
+    private static final int LENIENT_YAW_STEP = 20;
+    private static final float LENIENT_PITCH_START = -4f;
+    private static final float LENIENT_PITCH_END = -80f;
+    private static final float LENIENT_PITCH_STEP = 2f;
+
+    private static final float NORMAL_PITCH_START = -2f;
+    private static final float NORMAL_PITCH_END = -89f;
+    private static final float NORMAL_PITCH_STEP = 0.5f;
+    private static final float FINE_PITCH_STEP = 0.25f;
+
+    private static final long ENEMY_YAW_CACHE_MS = 50;
+
     // ---- Settings
     private final PearlThrowSettings settings;
 
@@ -18,6 +40,10 @@ public class PearlAimCalculator {
     private final PearlPhysicsSimulator simulator;
     private final MinecraftClient mc = MinecraftClient.getInstance();
 
+    // ---- Cache
+    private Float cachedEnemyYaw = null;
+    private long lastEnemyYawCheck = 0;
+
     // ---- Constructor
     public PearlAimCalculator(PearlThrowSettings settings, PearlSafetyChecker safetyChecker) {
         this.settings = settings;
@@ -25,7 +51,7 @@ public class PearlAimCalculator {
         this.simulator = new PearlPhysicsSimulator();
     }
 
-    // ---- Helpers
+    // ---- Public API
     public Aim calculateBestAim() {
         Aim aim = pickAimSmart();
         if (aim == null) {
@@ -34,168 +60,217 @@ public class PearlAimCalculator {
         return aim;
     }
 
+    // ---- Smart Aim Selection
     private Aim pickAimSmart() {
-        double minD = Math.min(settings.getMinBackDist(), settings.getMaxBackDist());
-        double maxD = Math.max(settings.getMinBackDist(), settings.getMaxBackDist());
+        DistanceRange range = getDistanceRange();
 
-        // Check if any escape is possible
-        if (settings.shouldCancelIfNoEscape()) {
-            double best = bestReachableDistance(minD, maxD);
-            if (best < minD) return null;
+        if (!canEscapeIfRequired(range)) {
+            return null;
         }
 
-        // Build yaw candidates
+        Aim bestAim = findBestAimFromCandidates(range);
+        return bestAim != null ? bestAim : tryLegacyFallback(range);
+    }
+
+    private boolean canEscapeIfRequired(DistanceRange range) {
+        if (!settings.shouldCancelIfNoEscape()) {
+            return true;
+        }
+        return bestReachableDistance(range) >= range.min;
+    }
+
+    private Aim findBestAimFromCandidates(DistanceRange range) {
         float[] yawCandidates = buildYawCandidates();
 
-        Float bestPitch = null;
-        Float bestYaw = null;
-        double bestTime = Double.POSITIVE_INFINITY;
+        AimCandidate best = new AimCandidate();
 
         for (float yawBase : yawCandidates) {
-            for (float wiggle : getYawWiggles()) {
+            for (float wiggle : YAW_WIGGLES) {
                 float yaw = wrapYaw(yawBase + wiggle);
+                Float pitch = calculatePitchForYaw(yaw, range);
 
-                Float pitch = calculatePitchForYaw(yaw, minD, maxD);
                 if (pitch == null) continue;
-
                 if (!passesAllSafetyChecks(yaw, pitch)) continue;
 
-                double t = simulator.estimateFlightTicks(yaw, pitch, 80);
-                if (isBetterAim(pitch, bestPitch, t, bestTime)) {
-                    bestPitch = pitch;
-                    bestYaw = yaw;
-                    bestTime = t;
+                double time = simulator.estimateFlightTicks(yaw, pitch, MAX_FLIGHT_TICKS);
+                if (best.isBetterThan(pitch, time)) {
+                    best.update(yaw, pitch, time);
                 }
             }
         }
 
-        if (bestPitch != null) {
-            return new Aim(bestYaw, bestPitch);
-        }
-
-        // Legacy behind-you fallback
-        return tryLegacyFallback(minD, maxD);
+        return best.toAim();
     }
 
+    // ---- Lenient Aim Selection
     private Aim pickAimLenient() {
-        double minD = Math.min(settings.getMinBackDist(), settings.getMaxBackDist());
-        double maxD = Math.max(settings.getMinBackDist(), settings.getMaxBackDist());
+        DistanceRange range = getDistanceRange();
+        LenientSafetyParams safetyParams = createLenientSafetyParams();
 
-        List<Float> yaws = new ArrayList<>();
-        for (int deg = 0; deg < 360; deg += 20) {
-            yaws.add((float) deg - 180f);
-        }
+        List<Float> yaws = buildLenientYawCandidates();
 
         for (float yaw : yaws) {
-            for (float pitch = -4f; pitch >= -80f; pitch -= 2f) {
-                if (!safetyChecker.hasInitialClearance(yaw, pitch,
-                    Math.max(0.6, settings.getInitialClearance() - 0.3))) {
-                    continue;
+            for (float pitch = LENIENT_PITCH_START; pitch >= LENIENT_PITCH_END; pitch -= LENIENT_PITCH_STEP) {
+                if (isValidLenientAim(yaw, pitch, range, safetyParams)) {
+                    return new Aim(yaw, clampPitch(pitch));
                 }
-
-                double d = simulator.simulatePearlRange(yaw, pitch, 80);
-                if (d < minD || d > maxD) continue;
-
-                if (!safetyChecker.hasClearPath(yaw, pitch,
-                    Math.max(3.0, settings.getClearCheckDistance() - 1.0))) {
-                    continue;
-                }
-
-                if (safetyChecker.hitsWallEarly(yaw, pitch,
-                    Math.max(3.0, settings.getNearPathCheck() - 1.5))) {
-                    continue;
-                }
-
-                return new Aim(yaw, clampPitch(pitch));
             }
         }
 
         return null;
     }
 
-    private float[] buildYawCandidates() {
-        float enemyYaw = getNearestEnemyYaw();
-        boolean haveEnemy = !Float.isNaN(enemyYaw);
-
-        if (settings.aimFullCircle()) {
-            List<Float> yaws = new ArrayList<>();
-            for (int deg = 0; deg < 360; deg += 15) {
-                float yaw = (float) deg - 180f;
-
-                if (haveEnemy && settings.avoidEnemyCone()) {
-                    if (angleDelta(yaw, enemyYaw) <= (float) (settings.getEnemyConeDegrees() / 2.0)) {
-                        continue;
-                    }
-                }
-
-                yaws.add(yaw);
-            }
-
-            // Fallback: if all yaws filtered, use opposite of enemy
-            if (yaws.isEmpty() && haveEnemy) {
-                yaws.add(wrapYaw(enemyYaw + 180f));
-            }
-
-            float[] result = new float[yaws.size()];
-            for (int i = 0; i < yaws.size(); i++) {
-                result[i] = yaws.get(i);
-            }
-            return result;
-        } else {
-            // Behind player only
-            float baseYaw = wrapYaw(mc.player.getYaw() + 180f);
-            if (settings.shouldTrySideOffsets()) {
-                return new float[]{baseYaw, wrapYaw(baseYaw + 20f), wrapYaw(baseYaw - 20f)};
-            } else {
-                return new float[]{baseYaw};
-            }
+    private List<Float> buildLenientYawCandidates() {
+        List<Float> yaws = new ArrayList<>();
+        for (int deg = 0; deg < 360; deg += LENIENT_YAW_STEP) {
+            yaws.add((float) deg - YAW_UPPER_BOUND);
         }
+        return yaws;
     }
 
-    private Float calculatePitchForYaw(float yaw, double minD, double maxD) {
+    private boolean isValidLenientAim(float yaw, float pitch, DistanceRange range, LenientSafetyParams params) {
+        if (!safetyChecker.hasInitialClearance(yaw, pitch, params.initialClearance)) {
+            return false;
+        }
+
+        double distance = simulator.simulatePearlRange(yaw, pitch, MAX_FLIGHT_TICKS);
+        if (!range.contains(distance)) {
+            return false;
+        }
+
+        if (!safetyChecker.hasClearPath(yaw, pitch, params.clearCheckDistance)) {
+            return false;
+        }
+
+        if (safetyChecker.hitsWallEarly(yaw, pitch, params.nearPathCheck)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private LenientSafetyParams createLenientSafetyParams() {
+        return new LenientSafetyParams(
+            Math.max(0.6, settings.getInitialClearance() - 0.3),
+            Math.max(3.0, settings.getClearCheckDistance() - 1.0),
+            Math.max(3.0, settings.getNearPathCheck() - 1.5)
+        );
+    }
+
+    // ---- Yaw Candidate Building
+    private float[] buildYawCandidates() {
+        if (!settings.aimFullCircle()) {
+            return buildBehindPlayerYaws();
+        }
+
+        float enemyYaw = getNearestEnemyYaw();
+        boolean haveEnemy = !Float.isNaN(enemyYaw);
+        return buildFullCircleYaws(enemyYaw, haveEnemy);
+    }
+
+    private float[] buildBehindPlayerYaws() {
+        if (mc.player == null) {
+            return new float[]{0f};
+        }
+
+        float baseYaw = wrapYaw(mc.player.getYaw() + YAW_UPPER_BOUND);
+
+        if (settings.shouldTrySideOffsets()) {
+            return new float[]{
+                baseYaw,
+                wrapYaw(baseYaw + 20f),
+                wrapYaw(baseYaw - 20f)
+            };
+        }
+
+        return new float[]{baseYaw};
+    }
+
+    private float[] buildFullCircleYaws(float enemyYaw, boolean haveEnemy) {
+        List<Float> yaws = new ArrayList<>();
+
+        for (int deg = 0; deg < 360; deg += FULL_CIRCLE_DEG_STEP) {
+            float yaw = (float) deg - YAW_UPPER_BOUND;
+            if (shouldIncludeYaw(yaw, enemyYaw, haveEnemy)) {
+                yaws.add(yaw);
+            }
+        }
+
+        if (yaws.isEmpty() && haveEnemy) {
+            yaws.add(wrapYaw(enemyYaw + YAW_UPPER_BOUND));
+        }
+
+        return toFloatArray(yaws);
+    }
+
+    private boolean shouldIncludeYaw(float yaw, float enemyYaw, boolean haveEnemy) {
+        if (!haveEnemy || !settings.avoidEnemyCone()) {
+            return true;
+        }
+
+        float halfCone = (float) (settings.getEnemyConeDegrees() / 2.0);
+        return angleDelta(yaw, enemyYaw) > halfCone;
+    }
+
+    // ---- Pitch Calculation
+    private Float calculatePitchForYaw(float yaw, DistanceRange range) {
+        if (mc.player == null) {
+            return null;
+        }
+
         if (settings.useAutoPitch()) {
-            return findFlattestPitchForDistanceRange(yaw, minD, maxD);
+            return findFlattestPitchForDistanceRange(yaw, range);
         } else {
             return clampPitch((float) -settings.getPitchUpDegrees());
         }
     }
 
-    private Float findFlattestPitchForDistanceRange(float yaw, double minD, double maxD) {
+    private Float findFlattestPitchForDistanceRange(float yaw, DistanceRange range) {
         // Try normal resolution first
-        for (float pitch = -2f; pitch >= -89f; pitch -= 0.5f) {
-            if (!safetyChecker.hasInitialClearance(yaw, pitch, settings.getInitialClearance())) {
-                continue;
-            }
-
-            double d = simulator.simulatePearlRange(yaw, pitch, 80);
-            if (d >= minD && d <= maxD) {
-                if (safetyChecker.hasClearPath(yaw, pitch, settings.getClearCheckDistance())
-                    && !safetyChecker.hitsWallEarly(yaw, pitch, settings.getNearPathCheck())) {
-                    return clampPitch(pitch);
-                }
-            }
+        Float result = searchPitchRange(yaw, range, NORMAL_PITCH_STEP);
+        if (result != null) {
+            return result;
         }
 
         // Try finer resolution if escalate is enabled
         if (settings.shouldEscalatePitch()) {
-            for (float pitch = -2f; pitch >= -89f; pitch -= 0.25f) {
-                if (!safetyChecker.hasInitialClearance(yaw, pitch, settings.getInitialClearance())) {
-                    continue;
-                }
-
-                double d = simulator.simulatePearlRange(yaw, pitch, 80);
-                if (d >= minD && d <= maxD) {
-                    if (safetyChecker.hasClearPath(yaw, pitch, settings.getClearCheckDistance())
-                        && !safetyChecker.hitsWallEarly(yaw, pitch, settings.getNearPathCheck())) {
-                        return clampPitch(pitch);
-                    }
-                }
-            }
+            return searchPitchRange(yaw, range, FINE_PITCH_STEP);
         }
 
         return null;
     }
 
+    private Float searchPitchRange(float yaw, DistanceRange range, float step) {
+        for (float pitch = NORMAL_PITCH_START; pitch >= NORMAL_PITCH_END; pitch -= step) {
+            if (isValidPitchForDistance(yaw, pitch, range)) {
+                return clampPitch(pitch);
+            }
+        }
+        return null;
+    }
+
+    private boolean isValidPitchForDistance(float yaw, float pitch, DistanceRange range) {
+        if (!safetyChecker.hasInitialClearance(yaw, pitch, settings.getInitialClearance())) {
+            return false;
+        }
+
+        double distance = simulator.simulatePearlRange(yaw, pitch, MAX_FLIGHT_TICKS);
+        if (!range.contains(distance)) {
+            return false;
+        }
+
+        if (!safetyChecker.hasClearPath(yaw, pitch, settings.getClearCheckDistance())) {
+            return false;
+        }
+
+        if (safetyChecker.hitsWallEarly(yaw, pitch, settings.getNearPathCheck())) {
+            return false;
+        }
+
+        return true;
+    }
+
+    // ---- Safety Checks
     private boolean passesAllSafetyChecks(float yaw, float pitch) {
         if (!safetyChecker.hasInitialClearance(yaw, pitch, settings.getInitialClearance())) {
             return false;
@@ -209,9 +284,8 @@ public class PearlAimCalculator {
             return false;
         }
 
-        // Corridor width guard
-        double halfW = calculateRequiredCorridorWidth(yaw);
-        if (!safetyChecker.hasCorridorWidth(yaw, pitch, settings.getCorridorCheckDist(), halfW)) {
+        double requiredHalfWidth = calculateRequiredCorridorWidth(yaw);
+        if (!safetyChecker.hasCorridorWidth(yaw, pitch, settings.getCorridorCheckDist(), requiredHalfWidth)) {
             return false;
         }
 
@@ -219,76 +293,141 @@ public class PearlAimCalculator {
     }
 
     private double calculateRequiredCorridorWidth(float yaw) {
-        double halfW = settings.getCorridorHalfWidth();
+        double halfWidth = settings.getCorridorHalfWidth();
 
         if (settings.aimFullCircle() && settings.avoidEnemyCone()) {
-            float enemyYaw = getNearestEnemyYaw();
-            if (!Float.isNaN(enemyYaw)) {
-                float delta = angleDelta(yaw, enemyYaw);
-                float hard = (float) (settings.getEnemyConeDegrees() / 2.0);
-                float soft = hard + (float) settings.getEnemyConeSoftPad();
-
-                if (delta <= soft) {
-                    halfW += settings.getEnemyCorridorBoost();
-                }
-            }
+            halfWidth = applyEnemyCorridorBoost(yaw, halfWidth);
         }
 
-        return halfW;
+        return halfWidth;
     }
 
-    private Aim tryLegacyFallback(double minD, double maxD) {
-        float baseYaw = wrapYaw(mc.player.getYaw() + 180f);
+    private double applyEnemyCorridorBoost(float yaw, double baseHalfWidth) {
+        float enemyYaw = getNearestEnemyYaw();
+        if (Float.isNaN(enemyYaw)) {
+            return baseHalfWidth;
+        }
+
+        float delta = angleDelta(yaw, enemyYaw);
+        float hardCone = (float) (settings.getEnemyConeDegrees() / 2.0);
+        float softCone = hardCone + (float) settings.getEnemyConeSoftPad();
+
+        if (delta <= softCone) {
+            return baseHalfWidth + settings.getEnemyCorridorBoost();
+        }
+
+        return baseHalfWidth;
+    }
+
+    // ---- Legacy Fallback
+    private Aim tryLegacyFallback(DistanceRange range) {
+        if (mc.player == null) {
+            return null;
+        }
+
+        float baseYaw = wrapYaw(mc.player.getYaw() + YAW_UPPER_BOUND);
         float basePitch = (float) -settings.getPitchUpDegrees();
 
         float[] pitchAdds = settings.shouldEscalatePitch()
-            ? new float[]{0f, +15f, +30f}
+            ? new float[]{0f, 15f, 30f}
             : new float[]{0f};
 
         float[] yawOffsets = settings.shouldTrySideOffsets()
-            ? new float[]{0f, +20f, -20f}
+            ? new float[]{0f, 20f, -20f}
             : new float[]{0f};
 
-        for (float pAdd : pitchAdds) {
-            float pitch = clampPitch(basePitch - pAdd);
+        LegacySafetyParams params = createLegacySafetyParams();
 
-            for (float yOff : yawOffsets) {
-                float yaw = wrapYaw(baseYaw + yOff);
+        for (float pitchAdd : pitchAdds) {
+            float pitch = clampPitch(basePitch - pitchAdd);
 
-                if (safetyChecker.hasInitialClearance(yaw, pitch,
-                    Math.max(0.6, settings.getInitialClearance()))
-                    && safetyChecker.hasClearPath(yaw, pitch,
-                    Math.max(3.0, settings.getClearCheckDistance() - 1.0))
-                    && !safetyChecker.hitsWallEarly(yaw, pitch,
-                    Math.max(3.0, settings.getNearPathCheck() - 1.5))) {
+            for (float yawOffset : yawOffsets) {
+                float yaw = wrapYaw(baseYaw + yawOffset);
 
-                    if (safetyChecker.hasCorridorWidth(yaw, pitch,
-                        Math.max(1.5, settings.getCorridorCheckDist() - 1.0),
-                        Math.max(0.45, settings.getCorridorHalfWidth() - 0.1))) {
-                        return new Aim(yaw, pitch);
-                    }
+                if (isValidLegacyAim(yaw, pitch, params)) {
+                    return new Aim(yaw, pitch);
                 }
             }
         }
 
-        // Straight-up fallback
-        if (settings.useFallbackStraightUp()) {
-            double best = settings.shouldCancelIfNoEscape()
-                ? bestReachableDistance(minD, maxD)
-                : 0.0;
+        return tryFallbackStraightUp(range);
+    }
 
-            if (!settings.shouldCancelIfNoEscape() || best < minD * 0.9) {
-                float fyaw = wrapYaw(mc.player.getYaw() + 180f);
-                return new Aim(fyaw, -89.0f);
-            }
+    private boolean isValidLegacyAim(float yaw, float pitch, LegacySafetyParams params) {
+        if (!safetyChecker.hasInitialClearance(yaw, pitch, params.initialClearance)) {
+            return false;
+        }
+
+        if (!safetyChecker.hasClearPath(yaw, pitch, params.clearCheckDistance)) {
+            return false;
+        }
+
+        if (safetyChecker.hitsWallEarly(yaw, pitch, params.nearPathCheck)) {
+            return false;
+        }
+
+        if (!safetyChecker.hasCorridorWidth(yaw, pitch, params.corridorCheckDist, params.corridorHalfWidth)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private LegacySafetyParams createLegacySafetyParams() {
+        return new LegacySafetyParams(
+            Math.max(0.6, settings.getInitialClearance()),
+            Math.max(3.0, settings.getClearCheckDistance() - 1.0),
+            Math.max(3.0, settings.getNearPathCheck() - 1.5),
+            Math.max(1.5, settings.getCorridorCheckDist() - 1.0),
+            Math.max(0.45, settings.getCorridorHalfWidth() - 0.1)
+        );
+    }
+
+    private Aim tryFallbackStraightUp(DistanceRange range) {
+        if (!settings.useFallbackStraightUp()) {
+            return null;
+        }
+
+        if (mc.player == null) {
+            return null;
+        }
+
+        double bestReachable = settings.shouldCancelIfNoEscape()
+            ? bestReachableDistance(range)
+            : 0.0;
+
+        if (!settings.shouldCancelIfNoEscape() || bestReachable < range.min * 0.9) {
+            float yaw = wrapYaw(mc.player.getYaw() + YAW_UPPER_BOUND);
+            return new Aim(yaw, MIN_PITCH);
         }
 
         return null;
     }
 
-    private double bestReachableDistance(double minD, double maxD) {
-        if (mc.player == null) return 0.0;
+    // ---- Best Reachable Distance
+    private double bestReachableDistance(DistanceRange range) {
+        if (mc.player == null) {
+            return 0.0;
+        }
 
+        float[] yaws = buildProbeYaws();
+        float[] pitches = buildProbePitches();
+
+        double best = 0.0;
+
+        for (float yaw : yaws) {
+            for (float pitch : pitches) {
+                double distance = probeDistance(yaw, pitch);
+                if (range.contains(distance)) {
+                    best = Math.max(best, distance);
+                }
+            }
+        }
+
+        return best;
+    }
+
+    private float[] buildProbeYaws() {
         float enemyYaw = getNearestEnemyYaw();
         boolean haveEnemy = !Float.isNaN(enemyYaw);
 
@@ -298,102 +437,207 @@ public class PearlAimCalculator {
         for (double deg = -180.0; deg < 180.0; deg += step) {
             float yaw = (float) deg;
 
-            if (settings.aimFullCircle() && settings.avoidEnemyCone() && haveEnemy) {
-                if (angleDelta(yaw, enemyYaw) <= (float) (settings.getEnemyConeDegrees() / 2.0)) {
-                    continue;
-                }
+            if (shouldSkipProbeYaw(yaw, enemyYaw, haveEnemy)) {
+                continue;
             }
 
             yaws.add(yaw);
         }
 
         if (yaws.isEmpty() && haveEnemy) {
-            yaws.add(wrapYaw(enemyYaw + 180f));
+            yaws.add(wrapYaw(enemyYaw + YAW_UPPER_BOUND));
         }
 
-        int pc = Math.max(1, Math.min(6, settings.getProbePitchCount()));
-        float[] pitches = new float[pc];
-        for (int i = 0; i < pc; i++) {
+        return toFloatArray(yaws);
+    }
+
+    private boolean shouldSkipProbeYaw(float yaw, float enemyYaw, boolean haveEnemy) {
+        if (!settings.aimFullCircle() || !settings.avoidEnemyCone() || !haveEnemy) {
+            return false;
+        }
+
+        float halfCone = (float) (settings.getEnemyConeDegrees() / 2.0);
+        return angleDelta(yaw, enemyYaw) <= halfCone;
+    }
+
+    private float[] buildProbePitches() {
+        int count = Math.max(1, Math.min(6, settings.getProbePitchCount()));
+        float[] pitches = new float[count];
+
+        for (int i = 0; i < count; i++) {
             pitches[i] = clampPitch(-2f - i * 6f);
         }
 
-        double best = 0.0;
-        for (float yaw : yaws) {
-            for (float pitch : pitches) {
-                if (!safetyChecker.hasInitialClearance(yaw, pitch, settings.getInitialClearance())) {
-                    continue;
-                }
-
-                if (!safetyChecker.hasClearPath(yaw, pitch, settings.getClearCheckDistance())) {
-                    continue;
-                }
-
-                if (safetyChecker.hitsWallEarly(yaw, pitch, settings.getNearPathCheck())) {
-                    continue;
-                }
-
-                double d = simulator.simulatePearlRange(yaw, pitch, 80);
-                if (d >= minD && d <= maxD) {
-                    best = Math.max(best, d);
-                }
-            }
-        }
-
-        return best;
+        return pitches;
     }
 
+    private double probeDistance(float yaw, float pitch) {
+        if (!safetyChecker.hasInitialClearance(yaw, pitch, settings.getInitialClearance())) {
+            return 0.0;
+        }
+
+        if (!safetyChecker.hasClearPath(yaw, pitch, settings.getClearCheckDistance())) {
+            return 0.0;
+        }
+
+        if (safetyChecker.hitsWallEarly(yaw, pitch, settings.getNearPathCheck())) {
+            return 0.0;
+        }
+
+        return simulator.simulatePearlRange(yaw, pitch, MAX_FLIGHT_TICKS);
+    }
+
+    // ---- Enemy Detection
     private float getNearestEnemyYaw() {
-        if (mc.world == null || mc.player == null) return Float.NaN;
+        long now = System.currentTimeMillis();
 
+        if (cachedEnemyYaw != null && (now - lastEnemyYawCheck) < ENEMY_YAW_CACHE_MS) {
+            return cachedEnemyYaw;
+        }
+
+        cachedEnemyYaw = calculateNearestEnemyYaw();
+        lastEnemyYawCheck = now;
+        return cachedEnemyYaw;
+    }
+
+    private float calculateNearestEnemyYaw() {
+        if (mc.world == null || mc.player == null) {
+            return Float.NaN;
+        }
+
+        PlayerEntity nearest = findNearestPlayer();
+        if (nearest == null) {
+            return Float.NaN;
+        }
+
+        return calculateYawToPlayer(nearest);
+    }
+
+    private PlayerEntity findNearestPlayer() {
         PlayerEntity nearest = null;
-        double best = Double.POSITIVE_INFINITY;
+        double bestDistance = Double.POSITIVE_INFINITY;
 
-        for (PlayerEntity p : mc.world.getPlayers()) {
-            if (p == mc.player) continue;
-            double d = p.squaredDistanceTo(mc.player);
-            if (d < best) {
-                best = d;
-                nearest = p;
+        for (PlayerEntity player : mc.world.getPlayers()) {
+            if (player == mc.player) continue;
+
+            double distance = player.squaredDistanceTo(mc.player);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                nearest = player;
             }
         }
 
-        if (nearest == null) return Float.NaN;
+        return nearest;
+    }
 
-        Vec3d me = mc.player.getPos();
-        Vec3d en = nearest.getPos();
-        double dx = en.x - me.x;
-        double dz = en.z - me.z;
+    private float calculateYawToPlayer(PlayerEntity target) {
+        Vec3d myPos = mc.player.getPos();
+        Vec3d targetPos = target.getPos();
+
+        double dx = targetPos.x - myPos.x;
+        double dz = targetPos.z - myPos.z;
+
         float yawRad = (float) Math.atan2(-dx, dz);
-
         return (float) Math.toDegrees(yawRad);
     }
 
-    private boolean isBetterAim(Float pitch, Float bestPitch, double time, double bestTime) {
-        if (bestPitch == null) return true;
-        if (Math.abs(pitch) < Math.abs(bestPitch)) return true;
-        if (Math.abs(pitch) == Math.abs(bestPitch) && time < bestTime) return true;
-        return false;
+    // ---- Utility Methods
+    private DistanceRange getDistanceRange() {
+        double min = Math.min(settings.getMinBackDist(), settings.getMaxBackDist());
+        double max = Math.max(settings.getMinBackDist(), settings.getMaxBackDist());
+        return new DistanceRange(min, max);
     }
 
-    private static float[] getYawWiggles() {
-        return new float[]{0f, +7f, -7f, +12f, -12f};
+    private static float[] toFloatArray(List<Float> list) {
+        float[] array = new float[list.size()];
+        for (int i = 0; i < list.size(); i++) {
+            array[i] = list.get(i);
+        }
+        return array;
     }
 
     private static float angleDelta(float a, float b) {
         return Math.abs(wrapYaw(a - b));
     }
 
-    private static float clampPitch(float p) {
-        return Math.max(-89.9f, Math.min(89.9f, p));
+    private static float clampPitch(float pitch) {
+        return Math.max(MIN_PITCH, Math.min(MAX_PITCH, pitch));
     }
 
     private static float wrapYaw(float yaw) {
-        while (yaw <= -180f) yaw += 360f;
-        while (yaw > 180f) yaw -= 360f;
+        while (yaw <= YAW_LOWER_BOUND) yaw += YAW_NORMALIZATION;
+        while (yaw > YAW_UPPER_BOUND) yaw -= YAW_NORMALIZATION;
         return yaw;
     }
 
-    // ---- Enums
+    // ---- Helper Classes
+    private static class AimCandidate {
+        Float yaw = null;
+        Float pitch = null;
+        double time = Double.POSITIVE_INFINITY;
+
+        boolean isBetterThan(float candidatePitch, double candidateTime) {
+            if (pitch == null) return true;
+            if (Math.abs(candidatePitch) < Math.abs(pitch)) return true;
+            if (Math.abs(candidatePitch) == Math.abs(pitch) && candidateTime < time) return true;
+            return false;
+        }
+
+        void update(float newYaw, float newPitch, double newTime) {
+            this.yaw = newYaw;
+            this.pitch = newPitch;
+            this.time = newTime;
+        }
+
+        Aim toAim() {
+            return pitch != null ? new Aim(yaw, pitch) : null;
+        }
+    }
+
+    private static class DistanceRange {
+        final double min;
+        final double max;
+
+        DistanceRange(double min, double max) {
+            this.min = min;
+            this.max = max;
+        }
+
+        boolean contains(double distance) {
+            return distance >= min && distance <= max;
+        }
+    }
+
+    private static class LenientSafetyParams {
+        final double initialClearance;
+        final double clearCheckDistance;
+        final double nearPathCheck;
+
+        LenientSafetyParams(double initialClearance, double clearCheckDistance, double nearPathCheck) {
+            this.initialClearance = initialClearance;
+            this.clearCheckDistance = clearCheckDistance;
+            this.nearPathCheck = nearPathCheck;
+        }
+    }
+
+    private static class LegacySafetyParams {
+        final double initialClearance;
+        final double clearCheckDistance;
+        final double nearPathCheck;
+        final double corridorCheckDist;
+        final double corridorHalfWidth;
+
+        LegacySafetyParams(double initialClearance, double clearCheckDistance, double nearPathCheck,
+                           double corridorCheckDist, double corridorHalfWidth) {
+            this.initialClearance = initialClearance;
+            this.clearCheckDistance = clearCheckDistance;
+            this.nearPathCheck = nearPathCheck;
+            this.corridorCheckDist = corridorCheckDist;
+            this.corridorHalfWidth = corridorHalfWidth;
+        }
+    }
+
+    // ---- Return Type
     public static class Aim {
         public final float yaw;
         public final float pitch;

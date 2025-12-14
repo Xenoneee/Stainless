@@ -6,16 +6,26 @@ import xenon.addon.stainless.modules.autopearlthrow.*;
 import meteordevelopment.meteorclient.events.packets.PacketEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
-import meteordevelopment.meteorclient.utils.player.FindItemResult;
-import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.meteorclient.utils.player.Rotations;
 import meteordevelopment.orbit.EventHandler;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.Items;
 import net.minecraft.network.packet.s2c.play.EntityStatusS2CPacket;
 import net.minecraft.util.Hand;
 
 public class AutoPearlThrow extends StainlessModule {
+
+    // ---- Constants
+    private static final byte TOTEM_POP_STATUS = 35;
+    private static final int DEFAULT_TEST_DELAY_MS = 75;
+    private static final int FORCE_THROW_DELAY_MS = 50;
+
+    // ---- State
+    private final PearlThrowSettings pearlSettings;
+    private final PearlAimCalculator aimCalculator;
+    private final PearlInventoryManager inventoryManager;
+    private final PearlSafetyChecker safetyChecker;
+    private final PearlThrowState state;
+
+    // ---- Constructor
     public AutoPearlThrow() {
         super(Stainless.STAINLESS_CATEGORY, "AutoPearlThrow",
             "Automatically throws pearl on totem pop.");
@@ -27,41 +37,34 @@ public class AutoPearlThrow extends StainlessModule {
         this.inventoryManager = new PearlInventoryManager(pearlSettings);
     }
 
-    // -------------------- State --------------------
-    private final PearlThrowSettings pearlSettings;
-    private final PearlAimCalculator aimCalculator;
-    private final PearlInventoryManager inventoryManager;
-    private final PearlSafetyChecker safetyChecker;
-    private final PearlThrowState state;
-
+    // ---- Lifecycle
     @Override
     public void onDeactivate() {
         state.reset();
     }
 
+    // ---- Event Handlers
     @EventHandler
     private void onPacket(PacketEvent.Receive event) {
-        if (mc.player == null || mc.world == null) return;
-        if (!(event.packet instanceof EntityStatusS2CPacket p)) return;
+        if (!isPlayerReady()) return;
+        if (!(event.packet instanceof EntityStatusS2CPacket packet)) return;
 
-        // Check if this is a totem pop for the player
-        if (p.getStatus() == 35 && p.getEntity(mc.world) == mc.player) {
+        if (isTotemPopForPlayer(packet)) {
             handleTotemPop();
         }
     }
 
     @EventHandler
     private void onTick(TickEvent.Pre event) {
-        if (mc.player == null || mc.world == null) return;
+        if (!isPlayerReady()) return;
+
+        // Force throw keybind check
+        if (handleForceThrow()) {
+            return;
+        }
 
         // Reserve guard check
-        if (pearlSettings.isReserveGuardActive()) {
-            if (state.isPendingThrow()) {
-                state.reset();
-            }
-            if (pearlSettings.isDebugEnabled()) {
-                info("Reserve totems reached — skipping.");
-            }
+        if (shouldSkipDueToReserve()) {
             return;
         }
 
@@ -74,40 +77,54 @@ public class AutoPearlThrow extends StainlessModule {
         }
     }
 
+    // ---- Pop Detection
+    private boolean isTotemPopForPlayer(EntityStatusS2CPacket packet) {
+        return packet.getStatus() == TOTEM_POP_STATUS
+            && packet.getEntity(mc.world) == mc.player;
+    }
+
     private void handleTotemPop() {
         long now = System.currentTimeMillis();
 
         if (state.isOnCooldown(now, pearlSettings.getCooldownMs())) {
-            if (pearlSettings.isDebugEnabled()) {
-                info("Pop: on cooldown.");
-            }
+            debugLog("Pop: on cooldown.");
             return;
         }
 
-        if (pearlSettings.isReserveGuardActive()) {
-            if (pearlSettings.isDebugEnabled()) {
-                info("Reserve totems reached — skipping throw.");
-            }
+        if (shouldSkipDueToReserve()) {
+            debugLog("Reserve totems reached — skipping throw.");
             return;
         }
 
-        if (pearlSettings.isDebugEnabled()) {
-            info("Totem pop -> schedule throw.");
-        }
-
+        debugLog("Totem pop -> schedule throw.");
         state.scheduleThrow(now + pearlSettings.getThrowDelayMs());
+    }
+
+    // ---- Manual Test
+    private boolean handleForceThrow() {
+        if (!pearlSettings.getForceThrowBind().isPressed()) {
+            return false;
+        }
+
+        // Only trigger if not already pending
+        if (state.isPendingThrow()) {
+            return false;
+        }
+
+        debugLog("Force throw keybind pressed -> scheduling immediate throw.");
+        state.scheduleThrow(System.currentTimeMillis() + FORCE_THROW_DELAY_MS);
+        return true;
     }
 
     private void handleManualTest() {
         if (pearlSettings.isTestNowTriggered() && !state.isPendingThrow()) {
-            if (pearlSettings.isDebugEnabled()) {
-                info("Manual test -> scheduling throw.");
-            }
-            state.scheduleThrow(System.currentTimeMillis() + 75);
+            debugLog("Manual test -> scheduling throw.");
+            state.scheduleThrow(System.currentTimeMillis() + DEFAULT_TEST_DELAY_MS);
             pearlSettings.resetTestNow();
         }
     }
 
+    // ---- Throw Processing
     private void processPendingThrow() {
         long now = System.currentTimeMillis();
 
@@ -116,49 +133,63 @@ public class AutoPearlThrow extends StainlessModule {
         }
 
         // Handle jump sequence
-        if (handleJumpSequence(now)) return;
+        if (shouldHandleJump(now)) {
+            return;
+        }
 
-        // Prepare inventory
-        PearlInventoryManager.InventoryPlan plan = prepareInventory();
-        if (plan == null) return;
+        // Prepare pearl in inventory (one-time setup)
+        PearlInventoryManager.InventoryPlan setupPlan = prepareInventorySetup();
+        if (setupPlan == null) {
+            return;
+        }
 
         // Calculate aim
         PearlAimCalculator.Aim aim = calculateAim();
         if (aim == null) {
-            plan.cleanup();
+            setupPlan.cleanup();
+            state.reset();
+            return;
+        }
+
+        // Prepare throw (handles silent swap)
+        PearlInventoryManager.ThrowPlan throwPlan = inventoryManager.prepareThrow();
+        if (!throwPlan.isValid()) {
+            debugLog("Pearl disappeared before throw. Cancelling.");
+            setupPlan.cleanup();
             state.reset();
             return;
         }
 
         // Execute throw
-        executeThrow(aim, plan);
+        executeThrow(aim, setupPlan, throwPlan);
     }
 
-    private boolean handleJumpSequence(long now) {
-        if (pearlSettings.shouldJumpOnThrow() && !state.hasJumped() && mc.player.isOnGround()) {
-            mc.player.jump();
-            state.markJumped();
-            state.delayThrow(now + pearlSettings.getJumpWaitMs());
-
-            if (pearlSettings.isDebugEnabled()) {
-                info("Jumped; waiting " + pearlSettings.getJumpWaitMs() + "ms.");
-            }
-            return true;
+    private boolean shouldHandleJump(long now) {
+        if (!pearlSettings.shouldJumpOnThrow()) {
+            return false;
         }
-        return false;
+
+        if (state.hasJumped() || !mc.player.isOnGround()) {
+            return false;
+        }
+
+        mc.player.jump();
+        state.markJumped();
+        state.delayThrow(now + pearlSettings.getJumpWaitMs());
+
+        debugLog("Jumped; waiting " + pearlSettings.getJumpWaitMs() + "ms.");
+        return true;
     }
 
-    private PearlInventoryManager.InventoryPlan prepareInventory() {
+    private PearlInventoryManager.InventoryPlan prepareInventorySetup() {
         PearlInventoryManager.InventoryPlan plan = inventoryManager.preparePearl();
 
         if (!plan.isValid()) {
-            if (pearlSettings.isDebugEnabled()) {
-                info("No pearls available. Cancelling.");
-            }
-            plan.cleanup();
+            debugLog("No pearls available. Cancelling.");
             state.reset();
             return null;
         }
+
         return plan;
     }
 
@@ -166,30 +197,55 @@ public class AutoPearlThrow extends StainlessModule {
         PearlAimCalculator.Aim aim = aimCalculator.calculateBestAim();
 
         if (aim == null) {
-            if (pearlSettings.isDebugEnabled()) {
-                info("All angles blocked or no escape — cancelled.");
-            }
+            debugLog("All angles blocked or no escape — cancelled.");
             return null;
         }
+
         return aim;
     }
 
-    private void executeThrow(PearlAimCalculator.Aim aim, PearlInventoryManager.InventoryPlan plan) {
+    private void executeThrow(PearlAimCalculator.Aim aim,
+                              PearlInventoryManager.InventoryPlan setupPlan,
+                              PearlInventoryManager.ThrowPlan throwPlan) {
         Runnable doThrow = () -> {
-            mc.interactionManager.interactItem(mc.player, plan.getHand());
-            plan.cleanup();
+            // Use MAIN_HAND since we removed offhand support
+            mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
+
+            // Cleanup in reverse order
+            throwPlan.cleanup();    // Swap back from silent swap
+            setupPlan.cleanup();    // Return pearl to inventory if needed
+
             state.recordThrow(System.currentTimeMillis());
             state.reset();
 
-            if (pearlSettings.isDebugEnabled()) {
-                info("Pearl thrown.");
-            }
+            debugLog("Pearl thrown.");
         };
 
         if (pearlSettings.shouldRotate()) {
             Rotations.rotate(aim.yaw, aim.pitch, doThrow);
         } else {
             doThrow.run();
+        }
+    }
+
+    // ---- Helper Methods
+    private boolean isPlayerReady() {
+        return mc.player != null && mc.world != null;
+    }
+
+    private boolean shouldSkipDueToReserve() {
+        if (pearlSettings.isReserveGuardActive()) {
+            if (state.isPendingThrow()) {
+                state.reset();
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private void debugLog(String message) {
+        if (pearlSettings.isDebugEnabled()) {
+            info(message);
         }
     }
 }
