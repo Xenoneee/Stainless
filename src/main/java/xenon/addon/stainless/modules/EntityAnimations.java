@@ -9,7 +9,8 @@ import meteordevelopment.meteorclient.settings.SettingGroup;
 
 public class EntityAnimations extends StainlessModule {
     public EntityAnimations() {
-        super(Stainless.STAINLESS_CATEGORY, "EntityAnimations", "Crystal & player animation/scale controls.");
+        super(Stainless.STAINLESS_CATEGORY, "EntityAnimations",
+            "Crystal & player animation/scale controls.");
         INSTANCE = this;
     }
 
