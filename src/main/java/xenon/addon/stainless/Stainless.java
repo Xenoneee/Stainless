@@ -24,7 +24,7 @@ public class Stainless extends MeteorAddon {
         Config.get().save();
     }
 
-        private void initializeModules(Modules modules) {
+    private void initializeModules(Modules modules) {
         Modules.get().add(new AntiConcrete());
         Modules.get().add(new AntiConcreteDetection());
         Modules.get().add(new AntiFeetplace());
