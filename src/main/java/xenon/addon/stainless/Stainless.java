@@ -5,6 +5,7 @@ import meteordevelopment.meteorclient.addons.MeteorAddon;
 import meteordevelopment.meteorclient.systems.config.Config;
 import meteordevelopment.meteorclient.systems.modules.Category;
 import meteordevelopment.meteorclient.systems.modules.Modules;
+import meteordevelopment.meteorclient.systems.modules.misc.PacketCanceller;
 import net.fabricmc.loader.impl.util.log.Log;
 import net.minecraft.item.Items;
 import org.slf4j.Logger;
@@ -36,6 +37,7 @@ public class Stainless extends MeteorAddon {
         Modules.get().add(new AutoWebFeetPlace());
         Modules.get().add(new BetterScaffold());
         Modules.get().add(new EntityAnimations());
+        Modules.get().add(new PacketMinePlus());
     }
 
     @Override
