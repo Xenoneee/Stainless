@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "stainless",
+  "version": "${version}",
+  "name": "Stainless",
+  "description": "Meteor Client addon for Minecraft 1.21.11 that includes hvh utilities.",
+  "authors": [
+    "Xenon_ne"
+  ],
+  "contact": {
+    "sources": "https://github.com/Xenoneee/Stainless",
+    "issues": "https://github.com/Xenoneee/Stainless/issues"
+  },
+  "icon": "assets/stainless/icon.png",
+  "license": "CC0 1.0 Universal",
+  "environment": "client",
+  "entrypoints": {
+    "meteor": [
+      "xenon.addon.stainless.Stainless"
+    ]
+  },
+  "mixins": [
+    "stainless.mixins.json"
+  ],
+  "custom": {
+    "meteor-client:color": "85,85,85",
+    "modmenu": {
+      "parent": {
+        "id": "meteor-client"
+      }
+    }
+  },
+  "depends": {
+    "java": ">=21",
+    "minecraft": ["${mc_version}"],
+    "meteor-client": "*"
+  }
+}
