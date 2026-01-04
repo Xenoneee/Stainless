@@ -40,9 +40,6 @@ Meteor Client addon for Minecraft 1.21.11 that includes hvh utilities.
 ### BetterScaffold
 - Automatically places blocks under you. (Credits to TrouserSteak).
 
-### EntityAnimations
-- Crystal & player animation/scale controls.
-
 ---
 
 ## Requirements
