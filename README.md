@@ -1,10 +1,10 @@
 # Stainless
 
 [![Meteor Addon](https://img.shields.io/badge/Meteor%20Client-Addon-blueviolet)](https://github.com/MeteorDevelopment/meteor-client/)
-[![Minecraft](https://img.shields.io/badge/Minecraft-1.21.5-green)](https://minecraft.net/)
+[![Minecraft](https://img.shields.io/badge/Minecraft-1.21.8-green)](https://minecraft.net/)
 [![Fabric](https://img.shields.io/badge/Mod%20Loader-Fabric-tan)](https://fabricmc.net/)
 
-Meteor Client addon for Minecraft 1.21.5 that includes hvh utilities.
+Meteor Client addon for Minecraft 1.21.8 that includes hvh utilities.
 
 ---
 
