@@ -531,12 +531,11 @@ public class PearlAimCalculator {
     }
 
     private float calculateYawToPlayer(PlayerEntity target) {
-        Vec3d myPos = new Vec3d(mc.player.getX(), mc.player.getY(), mc.player.getZ());
-        Vec3d targetPos = new Vec3d(target.getX(), target.getY(), target.getZ());
+        Vec3d myPos = mc.player.getPos();
+        Vec3d targetPos = target.getPos();
 
         double dx = targetPos.x - myPos.x;
         double dz = targetPos.z - myPos.z;
-
 
         float yawRad = (float) Math.atan2(-dx, dz);
         return (float) Math.toDegrees(yawRad);

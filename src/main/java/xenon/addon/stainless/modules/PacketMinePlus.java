@@ -214,7 +214,7 @@ public class PacketMinePlus extends StainlessModule {
         reset();
         renderAnimator.reset();
         if (mc.player != null) {
-            lastSelectedSlot = mc.player.getInventory().getSelectedSlot();
+            lastSelectedSlot = mc.player.getInventory().selectedSlot;
         }
     }
 
@@ -229,7 +229,7 @@ public class PacketMinePlus extends StainlessModule {
         }
         // Restore slot if needed
         if (lastSelectedSlot != -1 && mc.player != null &&
-            mc.player.getInventory().getSelectedSlot() != lastSelectedSlot) {
+            mc.player.getInventory().selectedSlot != lastSelectedSlot) {
             mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(lastSelectedSlot));
         }
         reset();
@@ -267,13 +267,13 @@ public class PacketMinePlus extends StainlessModule {
 
         // Track slot changes for reset-on-switch
         if (resetOnSwitch.get() && lastSelectedSlot != -1 &&
-            mc.player.getInventory().getSelectedSlot() != lastSelectedSlot) {
+            mc.player.getInventory().selectedSlot != lastSelectedSlot) {
             if (currentMining != null) {
                 currentMining.damage = 0;
                 currentMining.ready = false;
             }
         }
-        lastSelectedSlot = mc.player.getInventory().getSelectedSlot();
+        lastSelectedSlot = mc.player.getInventory().selectedSlot;
 
         // Tick instant timer
         if (instantTickTimer > 0) instantTickTimer--;
@@ -305,23 +305,46 @@ public class PacketMinePlus extends StainlessModule {
     private void onReceivePacket(PacketEvent.Receive event) {
         if (!(event.packet instanceof BlockUpdateS2CPacket packet)) return;
 
-        // FIXED: getBlockPos() -> getPos()
-        BlockPos pPos = packet.getPos();
+        // Handle block reappearing for re-break
+        if (reBreak.get() && currentMining != null &&
+            packet.getPos().equals(currentMining.pos)) {
 
-        if (reBreak.get() && currentMining != null && pPos.equals(currentMining.pos)) {
-            if (!packet.getState().isAir() && currentMining.ready) sendStartPackets(currentMining.pos, currentMining.direction);
+            if (!packet.getState().isAir() && currentMining.ready) {
+                // Block reappeared and we're ready - re-send start packets
+                if (chatInfo.get()) info("Re-breaking reappeared block");
+                sendStartPackets(currentMining.pos, currentMining.direction);
+            }
         }
 
-        if (previousMining != null && pPos.equals(previousMining.pos) && packet.getState().isAir()) previousMining = null;
-        if (currentMining != null && pPos.equals(currentMining.pos) && packet.getState().isAir() && !reBreak.get()) currentMining = null;
+        // Clear previous mining when block breaks
+        if (previousMining != null &&
+            packet.getPos().equals(previousMining.pos) &&
+            packet.getState().isAir()) {
+            previousMining = null;
+        }
+
+        // Clear current mining when block breaks (only if not re-breaking)
+        if (currentMining != null &&
+            packet.getPos().equals(currentMining.pos) &&
+            packet.getState().isAir() &&
+            !reBreak.get()) {
+            currentMining = null;
+        }
     }
 
     @EventHandler
     private void onRender(Render3DEvent event) {
         if (!render.get()) return;
+
         renderAnimator.update();
-        if (currentMining != null) renderMiningBlock(event, currentMining);
-        if (previousMining != null) renderMiningBlock(event, previousMining);
+
+        if (currentMining != null) {
+            renderMiningBlock(event, currentMining);
+        }
+
+        if (previousMining != null) {
+            renderMiningBlock(event, previousMining);
+        }
     }
 
     private void renderMiningBlock(Render3DEvent event, MiningData data) {
@@ -570,7 +593,7 @@ public class PacketMinePlus extends StainlessModule {
     }
 
     private void sendBreakPacketsWithSwap(MiningData data) {
-        int originalSlot = mc.player.getInventory().getSelectedSlot();
+        int originalSlot = mc.player.getInventory().selectedSlot;
         int toolSlot = -1;
 
         // Find and switch to best tool
@@ -621,7 +644,7 @@ public class PacketMinePlus extends StainlessModule {
     // ==================== PACKET SENDING ====================
 
     private void sendStartPackets(BlockPos pos, Direction direction) {
-        int originalSlot = mc.player.getInventory().getSelectedSlot();
+        int originalSlot = mc.player.getInventory().selectedSlot;
         int toolSlot = -1;
 
         // Find and switch to best tool for start packets

@@ -1,7 +1,5 @@
 package xenon.addon.stainless.modules;
 
-import xenon.addon.stainless.Stainless;
-import xenon.addon.stainless.StainlessModule;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.friends.Friends;
@@ -10,7 +8,6 @@ import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.meteorclient.utils.player.Rotations;
 import meteordevelopment.meteorclient.utils.world.BlockUtils;
 import meteordevelopment.orbit.EventHandler;
-
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
@@ -19,14 +16,18 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.Items;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.math.*;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
+import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.RaycastContext;
+import xenon.addon.stainless.Stainless;
+import xenon.addon.stainless.StainlessModule;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class AntiFeetPlace extends StainlessModule {
-    public AntiFeetPlace() {
+public class AntiFeetplace extends StainlessModule {
+    public AntiFeetplace() {
         super(Stainless.STAINLESS_CATEGORY, "AntiFeetPlace",
             "Interrupts Enemies FeetPlace with ender-chests.");
     }
@@ -107,11 +108,11 @@ public class AntiFeetPlace extends StainlessModule {
 
     private final Setting<Boolean> skipBedrockBottomLayer = sgGeneral.add(new BoolSetting.Builder()
         .name("skip-bottom-bedrock-layer").defaultValue(true)
-        .description("Skip bedrock at the world's bottommost Y (void floor).").build());
+        .description("Skip bedrock at the world’s bottommost Y (void floor).").build());
 
     private final Setting<Integer> bedrockHoldMaxTicks = sgGeneral.add(new IntSetting.Builder()
         .name("bedrock-hold-max-ticks").defaultValue(160).min(20).sliderMax(600)
-        .description("Abort hold-mining if bedrock didn't break within this many ticks.").build());
+        .description("Abort hold-mining if bedrock didn’t break within this many ticks.").build());
 
     private final Setting<Integer> mineRateLimit = sgGeneral.add(new IntSetting.Builder()
         .name("mine-rate-limit-ticks").defaultValue(3).min(1).sliderMax(10)
@@ -142,10 +143,11 @@ public class AntiFeetPlace extends StainlessModule {
     private enum Stage { SELECT, MINE_BELOW_TAP, BREAK_BEDROCK_HOLD, RETARGET_SURROUND_TAP, PLACE_ECHEST, PLACE_BRIDGE, HOLD, WAIT_CHEST }
     private Stage stage = Stage.SELECT;
 
-    private BlockPos surroundPos = null;
-    private BlockPos belowPos = null;
-    private Direction outwardDir = null;
+    private BlockPos surroundPos = null;   // chosen surround (y == target feet)
+    private BlockPos belowPos = null;      // ALWAYS surround.down()
+    private Direction outwardDir = null;   // feet -> surround (toward you), used to bias side order
 
+    // tick & rate-limit counters
     private int tapCounter = 0;
     private int ticksCounter = 0;
     private int tickCounter = 0;
@@ -187,6 +189,7 @@ public class AntiFeetPlace extends StainlessModule {
 
         BlockPos best = null; double bestDist = Double.MAX_VALUE; Direction bestDir = null;
 
+        // Prefer the surround facing us (enemy -> surround(facing us) -> chest -> obsidian -> us)
         if (preferredSurround.getY() == feet.getY() && preferredSurround.getManhattanDistance(feet) == 1) {
             BlockState s = mc.world.getBlockState(preferredSurround);
             if (!s.isAir()) {
@@ -203,13 +206,13 @@ public class AntiFeetPlace extends StainlessModule {
                     if (ok && skipHardBelow.get() && extraHard.get().contains(bs.getBlock()) && !bs.isOf(Blocks.BEDROCK)) ok = false;
                     if (ok && bs.isOf(Blocks.BEDROCK) && allowBedrockBreak.get() && skipBedrockBottomLayer.get() && below.getY() <= mc.world.getBottomY()) ok = false;
 
-                    Vec3d playerPos = new Vec3d(mc.player.getX(), mc.player.getY(), mc.player.getZ());
-                    double d = playerPos.squaredDistanceTo(Vec3d.ofCenter(preferredSurround));
+                    double d = mc.player.squaredDistanceTo(Vec3d.ofCenter(preferredSurround));
                     if (ok && d <= range.get() * range.get()) { best = preferredSurround; bestDir = facingMe; bestDist = d; }
                 }
             }
         }
 
+        // Fallback: any valid surround
         if (best == null) {
             for (BlockPos p : surroundOf(feet)) {
                 if (p.getY() != feet.getY()) continue;
@@ -229,8 +232,7 @@ public class AntiFeetPlace extends StainlessModule {
                 if (skipHardBelow.get() && extraHard.get().contains(bs.getBlock()) && !bs.isOf(Blocks.BEDROCK)) continue;
                 if (bs.isOf(Blocks.BEDROCK) && allowBedrockBreak.get() && skipBedrockBottomLayer.get() && below.getY() <= mc.world.getBottomY()) continue;
 
-                Vec3d playerPos = new Vec3d(mc.player.getX(), mc.player.getY(), mc.player.getZ());
-                double d = playerPos.squaredDistanceTo(Vec3d.ofCenter(p));
+                double d = mc.player.squaredDistanceTo(Vec3d.ofCenter(p));
                 if (d <= range.get() * range.get() && d < bestDist) { best = p; bestDir = dirFrom(feet, p); bestDist = d; }
             }
         }
@@ -284,13 +286,13 @@ public class AntiFeetPlace extends StainlessModule {
         if (bs.isOf(Blocks.ENDER_CHEST)) { stage = waitOrYieldAfterChest(); return; }
         if (skipBedrockBottomLayer.get() && belowPos.getY() <= mc.world.getBottomY()) { stage = Stage.SELECT; return; }
 
-        mineOnce(belowPos);
+        mineOnce(belowPos); // sustained hold (rate-limited)
         if (++ticksCounter >= bedrockHoldMaxTicks.get()) stage = Stage.SELECT;
     }
 
     private void retargetSurroundTapStage() {
         if (!validTarget()) { stage = Stage.SELECT; return; }
-        tapBlockOnce(surroundPos);
+        tapBlockOnce(surroundPos); // ensure rebreak sticks to surround
         if (++tapCounter >= tapTicksSurround.get()) {
             tapCounter = 0;
             stage = Stage.PLACE_ECHEST;
@@ -300,7 +302,7 @@ public class AntiFeetPlace extends StainlessModule {
     private void placeEChestStage() {
         if (!validTarget()) { stage = Stage.SELECT; return; }
 
-        BlockPos placeAt = belowPos;
+        BlockPos placeAt = belowPos; // ALWAYS under surround
         BlockState bs = mc.world.getBlockState(placeAt);
         if (bs.isOf(Blocks.ENDER_CHEST)) { stage = placeBridge.get() ? Stage.PLACE_BRIDGE : waitOrYieldAfterChest(); return; }
 
@@ -331,31 +333,38 @@ public class AntiFeetPlace extends StainlessModule {
             stage = waitOrYieldAfterChest(); return;
         }
 
+        // Wait a moment if chest not yet visible client-side (for neighbor face)
         if (!mc.world.getBlockState(belowPos).isOf(Blocks.ENDER_CHEST)) {
             if (++ticksCounter < 5) return;
         }
         ticksCounter = 0;
 
+        // Try all four sides: bias toward us first, then opposite, then left/right
         Direction bias = outwardDir != null ? outwardDir : Direction.NORTH;
         Direction[] order = new Direction[] { bias, bias.getOpposite(), rotateLeft(bias), rotateRight(bias) };
 
+        // Optional vertical clearance needed for crystal
         for (Direction d : order) {
             BlockPos bridgeBase = belowPos.offset(d);
 
+            // If already obsidian, treat as success
             if (mc.world.getBlockState(bridgeBase).isOf(Blocks.OBSIDIAN)) {
                 stage = waitOrYieldAfterChest(); return;
             }
 
+            // Ensure clearance above
             if (ensureCrystalClearance.get()) {
                 if (!clearOrWait(bridgeBase.up(), bridgePrepMaxTicks.get())) return;
                 if (!clearOrWait(bridgeBase.up(2), bridgePrepMaxTicks.get())) return;
             }
 
+            // Clear base if needed
             if (!mc.world.getBlockState(bridgeBase).isAir()) {
-                if (!bridgeMineIfBlocking.get()) continue;
-                if (!clearOrWait(bridgeBase, bridgePrepMaxTicks.get())) return;
+                if (!bridgeMineIfBlocking.get()) continue; // try next side
+                if (!clearOrWait(bridgeBase, bridgePrepMaxTicks.get())) return; // keep mining this side
             }
 
+            // Place obsidian
             FindItemResult obs = InvUtils.findInHotbar(Items.OBSIDIAN);
             if (!obs.found()) obs = InvUtils.find(Items.OBSIDIAN);
             if (!obs.found()) { stage = waitOrYieldAfterChest(); return; }
@@ -368,9 +377,11 @@ public class AntiFeetPlace extends StainlessModule {
                 stage = waitOrYieldAfterChest();
                 return;
             }
+            // If placement failed, try next side this tick.
         }
 
-        if (++tapCounter > 10) { tapCounter = 0; stage = Stage.SELECT; }
+        // None worked this tick; wait and re-try sides
+        if (++tapCounter > 10) { tapCounter = 0; stage = Stage.SELECT; } // give up and reselect if it keeps failing
     }
 
     private void holdStage() {
@@ -384,6 +395,7 @@ public class AntiFeetPlace extends StainlessModule {
         BlockState under = mc.world.getBlockState(belowPos);
         boolean chestPresent = under.isOf(Blocks.ENDER_CHEST);
 
+        // Keep the hole open ONLY if there's an actual block there
         if (retargetWhileChestPresent.get() && surroundPos != null) {
             if (!mc.world.getBlockState(surroundPos).isAir()
                 && (tickCounter % Math.max(1, waitRetargetInterval.get()) == 0)) {
@@ -394,16 +406,17 @@ public class AntiFeetPlace extends StainlessModule {
         if (maxWaitChestTicks.get() > 0 && ++ticksCounter >= maxWaitChestTicks.get()) { stage = Stage.SELECT; return; }
         if (chestPresent) return;
 
+        // Chest gone → resume sequence on same side
         ticksCounter = 0;
         tapCounter = 0;
 
         BlockState bs = mc.world.getBlockState(belowPos);
-        if (bs.isAir()) stage = Stage.RETARGET_SURROUND_TAP;
+        if (bs.isAir()) stage = Stage.RETARGET_SURROUND_TAP;               // retarget -> place chest again
         else if (bs.isOf(Blocks.BEDROCK) && allowBedrockBreak.get()
             && !(skipBedrockBottomLayer.get() && belowPos.getY() <= mc.world.getBottomY())) {
-            stage = Stage.BREAK_BEDROCK_HOLD;
+            stage = Stage.BREAK_BEDROCK_HOLD;                               // hold break then place
         } else if (!bs.isAir() && !bs.isOf(Blocks.ENDER_CHEST)) {
-            stage = Stage.MINE_BELOW_TAP;
+            stage = Stage.MINE_BELOW_TAP;                                   // clear non-chest block then place
         } else stage = Stage.SELECT;
     }
 
@@ -434,15 +447,14 @@ public class AntiFeetPlace extends StainlessModule {
     }
 
     private boolean inRange(BlockPos p) {
-        double r = range.get() + 1.0;
-        Vec3d playerPos = new Vec3d(mc.player.getX(), mc.player.getY(), mc.player.getZ());
-        return playerPos.squaredDistanceTo(Vec3d.ofCenter(p)) <= r * r;
+        double r = range.get() + 1.0; // small buffer
+        return mc.player.squaredDistanceTo(Vec3d.ofCenter(p)) <= r * r;
     }
 
     private void tapBlockOnce(BlockPos pos) {
         if (tickCounter < nextMineAllowedAt) return;
         BlockState st = mc.world.getBlockState(pos);
-        if (st.isAir() || st.isOf(Blocks.ENDER_CHEST)) return;
+        if (st.isAir() || st.isOf(Blocks.ENDER_CHEST)) return; // never hit air/chest
         if (rotate.get()) {
             float[] yp = lookAt(Vec3d.ofCenter(pos));
             Rotations.rotate(yp[0], yp[1], 25, () -> {});
@@ -469,12 +481,13 @@ public class AntiFeetPlace extends StainlessModule {
         nextMineAllowedAt = tickCounter + mineRateLimit.get();
     }
 
+    // Try to clear one position over multiple ticks (stays in the calling stage).
     private boolean clearOrWait(BlockPos pos, int maxTicks) {
         if (mc.world.getBlockState(pos).isAir()) return true;
         if (!bridgeMineIfBlocking.get()) return false;
         if (ticksCounter++ >= maxTicks) { ticksCounter = 0; stage = waitOrYieldAfterChest(); return false; }
         mineOnce(pos);
-        return false;
+        return false; // call again next tick
     }
 
     private Direction faceFor(BlockPos pos) {
@@ -534,8 +547,9 @@ public class AntiFeetPlace extends StainlessModule {
         return null;
     }
 
+    // Choose the surround facing us (so chest then obsidian extend toward us).
     private Direction dirTowardPlayer(BlockPos enemyFeet) {
-        Vec3d my = new Vec3d(mc.player.getX(), mc.player.getY(), mc.player.getZ());
+        Vec3d my = mc.player.getPos();
         Vec3d tgt = Vec3d.ofCenter(enemyFeet);
         double dx = my.x - tgt.x, dz = my.z - tgt.z;
         if (Math.abs(dx) >= Math.abs(dz)) return dx >= 0 ? Direction.EAST : Direction.WEST;

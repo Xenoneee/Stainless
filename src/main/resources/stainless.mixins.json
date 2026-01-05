@@ -1,11 +1,10 @@
 {
   "required": true,
+  "minVersion": "0.8",
   "package": "xenon.addon.stainless.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
     "ChatUtilsToggleMixin"
   ],
-  "injectors": {
-    "defaultRequire": 1
-  }
+  "injectors": { "defaultRequire": 1 }
 }

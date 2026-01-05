@@ -1,7 +1,5 @@
 package xenon.addon.stainless.modules;
 
-import xenon.addon.stainless.Stainless;
-import xenon.addon.stainless.StainlessModule;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.renderer.ShapeMode;
@@ -22,6 +20,8 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
+import xenon.addon.stainless.Stainless;
+import xenon.addon.stainless.StainlessModule;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -225,7 +225,7 @@ public class BetterScaffold extends StainlessModule {
         if (keepY.get()) {
             bp.setY(initialY);
             // Skip placing blocks if the distance exceeds keepYreach
-            if (bp.getSquaredDistance(mc.player.getBlockPos()) > keepYreach.get()) {
+            if (bp.getSquaredDistance(mc.player.getPos()) > keepYreach.get()) {
                 return;
             }
         }
@@ -295,11 +295,7 @@ public class BetterScaffold extends StainlessModule {
     private void determineBp() {
         if (airPlace.get()) {
             assert mc.player != null;
-            // FIXED: Replaced mc.player.getPos() with new Vec3d construction
-            Vec3d vec = new Vec3d(mc.player.getX(), mc.player.getY(), mc.player.getZ())
-                .add(mc.player.getVelocity())
-                .add(0, -0.5f, 0);
-
+            Vec3d vec = mc.player.getPos().add(mc.player.getVelocity()).add(0, -0.5f, 0);
             bp.set(vec.getX(), vec.getY(), vec.getZ());
 
         } else {
@@ -308,11 +304,9 @@ public class BetterScaffold extends StainlessModule {
                 bp.set(mc.player.getBlockPos().down());
 
             } else {
-                // FIXED: Manually create Vec3d to avoid casting errors
-                Vec3d pos = new Vec3d(mc.player.getX(), mc.player.getY(), mc.player.getZ());
-
+                Vec3d pos = mc.player.getPos();
                 pos = pos.add(0, -0.98f, 0);
-                pos = pos.add(mc.player.getVelocity());
+                pos.add(mc.player.getVelocity());
 
                 if (PlayerUtils.distanceTo(prevBp) > placeRange.get()) {
                     List<BlockPos> blockPosArray = new ArrayList<>();
@@ -320,7 +314,8 @@ public class BetterScaffold extends StainlessModule {
                     for (int x = (int) (mc.player.getX() - placeRange.get()); x < mc.player.getX() + placeRange.get(); x++) {
                         for (int z = (int) (mc.player.getZ() - placeRange.get()); z < mc.player.getZ() + placeRange.get(); z++) {
                             assert mc.world != null;
-                            for (int y = (int) Math.max(mc.world.getBottomY(), mc.player.getY() - placeRange.get()); y < Math.min(mc.world.getTopYInclusive(), mc.player.getY() + placeRange.get()); y++) {
+                            // FIXED: Use getTopY() instead of getTopYInclusive()
+                            for (int y = (int) Math.max(mc.world.getBottomY(), mc.player.getY() - placeRange.get()); y < Math.min(mc.world.getTopY(), mc.player.getY() + placeRange.get()); y++) {
                                 bp.set(x, y, z);
                                 if (!mc.world.getBlockState(bp).isAir()) blockPosArray.add(new BlockPos(bp));
                             }
@@ -482,3 +477,7 @@ public class BetterScaffold extends StainlessModule {
         AboveHead
     }
 }
+
+/**
+ * Credits to TrouserSteak
+ */

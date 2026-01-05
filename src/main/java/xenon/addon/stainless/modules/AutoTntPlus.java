@@ -1,7 +1,5 @@
 package xenon.addon.stainless.modules;
 
-import xenon.addon.stainless.Stainless;
-import xenon.addon.stainless.StainlessModule;
 import meteordevelopment.meteorclient.events.game.OpenScreenEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
@@ -23,9 +21,11 @@ import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
+import xenon.addon.stainless.Stainless;
+import xenon.addon.stainless.StainlessModule;
 
-public class AutoTntPlus extends StainlessModule {
-    public AutoTntPlus() {
+public class AutoTNTplus extends StainlessModule {
+    public AutoTNTplus() {
         super(Stainless.STAINLESS_CATEGORY, "AutoTntPlus",
             "Automatically drop tnt on enemies.");
     }

@@ -28,19 +28,22 @@ public class APSMovementController {
     // ---- Helpers
     public void faceTowardXZ(Vec3d target) {
         if (mc.player == null || target == null) return;
-        Vec3d playerPos = new Vec3d(mc.player.getX(), mc.player.getY(), mc.player.getZ());
+        Vec3d playerPos = mc.player.getPos();
         Vec3d flatDelta = new Vec3d(target.x - playerPos.x, 0, target.z - playerPos.z);
         if (flatDelta.lengthSquared() < 1e-6) return;
 
         float yaw = (float) (MathHelper.wrapDegrees(Math.toDegrees(Math.atan2(flatDelta.z, flatDelta.x)) - 90.0));
         mc.player.setYaw(yaw);
         mc.getNetworkHandler().sendPacket(new PlayerMoveC2SPacket.LookAndOnGround(
-            yaw, mc.player.getPitch(), mc.player.isOnGround(), false));
+            yaw,
+            mc.player.getPitch(),
+            mc.player.isOnGround()
+        ));
     }
 
     public void walkTowardExact(Vec3d target) {
         if (mc.player == null || target == null) return;
-        Vec3d pos = new Vec3d(mc.player.getX(), mc.player.getY(), mc.player.getZ());
+        Vec3d pos = mc.player.getPos();
         Vec3d flatDelta = new Vec3d(target.x - pos.x, 0, target.z - pos.z);
         if (flatDelta.lengthSquared() < 1e-5) return;
 

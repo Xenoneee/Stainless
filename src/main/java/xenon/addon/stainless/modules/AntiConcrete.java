@@ -1,7 +1,5 @@
 package xenon.addon.stainless.modules;
 
-import xenon.addon.stainless.Stainless;
-import xenon.addon.stainless.StainlessModule;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.utils.entity.SortPriority;
@@ -18,6 +16,8 @@ import net.minecraft.entity.FallingBlockEntity;
 import net.minecraft.item.Item;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
+import xenon.addon.stainless.Stainless;
+import xenon.addon.stainless.StainlessModule;
 
 public class AntiConcrete extends StainlessModule {
     public AntiConcrete() {

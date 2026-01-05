@@ -84,7 +84,7 @@ public class APSAssistStateMachine {
         stuckTicks = 0;
         escapeBoostTicks = 0;
         surfacingTicks = 0;
-        lastPos = mc.player != null ? Vec3d.ofCenter(mc.player.getBlockPos()) : null;
+        lastPos = mc.player != null ? mc.player.getPos() : null;
         stasisWater = null;
         standBlock = null;
         standEdgePos = null;
@@ -149,7 +149,7 @@ public class APSAssistStateMachine {
         }
 
         movement.maintainMovementKeys();
-        if (mc.player != null) lastPos = Vec3d.ofCenter(mc.player.getBlockPos());
+        if (mc.player != null) lastPos = mc.player.getPos();
     }
 
     public boolean canAutoStart() {
@@ -170,7 +170,7 @@ public class APSAssistStateMachine {
         }
     }
 
-    // ---- Tick Helpers
+    // ---- Helpers
     private void tickSearch() {
         var result = stasisFinder.findStasisAndEdge();
         if (!result.isValid()) {
@@ -287,9 +287,13 @@ public class APSAssistStateMachine {
         if (stasisWater != null) movement.faceTowardXZ(Vec3d.ofCenter(stasisWater));
         float targetPitch = settings.downPitchDeg.get().floatValue();
         mc.player.setPitch(targetPitch);
-        mc.getNetworkHandler().sendPacket(new PlayerMoveC2SPacket.LookAndOnGround(
-            mc.player.getYaw(), targetPitch, mc.player.isOnGround(), false
-        ));
+        mc.getNetworkHandler().sendPacket(
+            new PlayerMoveC2SPacket.LookAndOnGround(
+                mc.player.getYaw(),
+                targetPitch,
+                mc.player.isOnGround()
+            )
+        );
 
         if (isInWater()) {
             if (--throwAttemptTicks <= 0) {
@@ -389,108 +393,10 @@ public class APSAssistStateMachine {
         }
     }
 
-    // ---- Helper methods
-    private void logState() {
-        if (settings.debugChat.get() && lastLoggedState != state) {
-            debugLogger.run();
-            lastLoggedState = state;
-        }
-    }
-
-    private boolean isInWater() {
-        return mc.player != null && mc.player.isTouchingWater();
-    }
-
-    private void waterEscapeWatchdog() {
-        if (!settings.advancedWaterEscape.get() || standEdgePos == null || mc.player == null) return;
-
-        Vec3d p = Vec3d.ofCenter(mc.player.getBlockPos());
-        double dx = p.x - standEdgePos.x, dz = p.z - standEdgePos.z;
-        double dist = Math.sqrt(dx * dx + dz * dz);
-
-        double speedSq = 0;
-        if (lastPos != null) {
-            double sx = p.x - lastPos.x, sz = p.z - lastPos.z;
-            speedSq = sx * sx + sz * sz;
-        }
-
-        if (isInWater()) {
-            mc.player.setPitch(-settings.exitPitchDeg.get().floatValue());
-            movement.faceTowardXZ(standEdgePos);
-
-            movement.pressForward(settings.exitForwardTicks.get());
-            movement.pressSprint(settings.exitSprintTicks.get());
-            movement.pressJump(settings.exitJumpTicks.get());
-
-            if (lastEdgeDist - dist < 0.02) noProgressTicks++; else noProgressTicks = 0;
-            if (speedSq < 0.0004) stuckTicks++; else stuckTicks = 0;
-
-            if (noProgressTicks >= 10 || stuckTicks >= 8) {
-                escapeBoostTicks = Math.max(escapeBoostTicks, 6);
-                noProgressTicks = 0;
-                stuckTicks = 0;
-            }
-            if (escapeBoostTicks > 0) {
-                escapeBoostTicks--;
-                movement.strongWaterEscapeBoost(standEdgePos);
-            }
-        } else {
-            noProgressTicks = stuckTicks = escapeBoostTicks = 0;
-        }
-
-        lastEdgeDist = dist;
-    }
-
-    private boolean isAtEdge() {
-        if (standEdgePos == null || mc.player == null) return false;
-        return isNearExact(standEdgePos, settings.approachDistance.get() * 1.5);
-    }
-
-    private boolean isNearExact(Vec3d target, double dist) {
-        Vec3d p = Vec3d.ofCenter(mc.player.getBlockPos());
-        double dx = p.x - target.x, dz = p.z - target.z;
-        double distance = Math.sqrt(dx * dx + dz * dz);
-        return distance <= dist;
-    }
-
-    private boolean isHeadAboveSurface() {
-        if (mc == null || mc.player == null || mc.world == null) return false;
-        double eyeY = mc.player.getEyeY();
-        BlockPos eyePos = mc.player.getBlockPos();
-        if (mc.world.getFluidState(eyePos).getFluid() != Fluids.WATER) return true;
-
-        BlockPos feet = mc.player.getBlockPos();
-        double surfaceY = feet.getY() + 1.0;
-        double headY = mc.player.getBoundingBox().maxY;
-        return headY > surfaceY + settings.surfaceHeadClearance.get();
-    }
-
-    private Vec3d snapPointOnEdge(Vec3d edge) {
-        if (stasisWater == null) return edge;
-        Vec3d waterCenter = Vec3d.ofCenter(stasisWater);
-        Vec3d fromWater = edge.subtract(waterCenter);
-        if (fromWater.lengthSquared() < 1e-6) return edge;
-        return edge.add(fromWater.normalize().multiply(0.14));
-    }
-
-    private boolean hasReachedStepBackTarget() {
-        if (stepBackTarget == null || mc.player == null) return true;
-        Vec3d currentPos = Vec3d.ofCenter(mc.player.getBlockPos());
-        double dx = currentPos.x - stepBackTarget.x;
-        double dz = currentPos.z - stepBackTarget.z;
-        return (dx * dx + dz * dz) <= 0.49;
-    }
-
-    private boolean checkPearlIncreasedInStasis() {
-        if (stasisWater == null || mc.world == null) return false;
-        int currentCount = stasisFinder.countPearlsInStasis(stasisWater);
-        return currentCount > stasisPearlCountBefore;
-    }
-
     private void calculateStepBackTarget() {
         if (stasisWater == null || mc.player == null || mc.world == null) return;
 
-        Vec3d playerPos = Vec3d.ofCenter(mc.player.getBlockPos());
+        Vec3d playerPos = mc.player.getPos();
         Vec3d waterCenter = Vec3d.ofCenter(stasisWater);
         Vec3d awayXZ = new Vec3d(playerPos.x - waterCenter.x, 0, playerPos.z - waterCenter.z);
         if (awayXZ.lengthSquared() < 1e-6) awayXZ = new Vec3d(0, 0, 1);
@@ -549,9 +455,111 @@ public class APSAssistStateMachine {
         stepBackTicksRemaining = Math.max(settings.stepBackTicks.get(), (int) Math.ceil(12 * flatDist));
     }
 
-    // ---- State enum
-    public enum State { IDLE, SEARCH, PATHING, SURFACING, EDGE_ADJUST, THROWING, STEPPING_BACK, VERIFYING, DONE, FAILED }
+    private void waterEscapeWatchdog() {
+        if (!settings.advancedWaterEscape.get() || standEdgePos == null || mc.player == null) return;
 
-    public State getState() { return state; }
-    public boolean isActive() { return state != State.IDLE && state != State.DONE && state != State.FAILED; }
+        Vec3d p = mc.player.getPos();
+        double dx = p.x - standEdgePos.x, dz = p.z - standEdgePos.z;
+        double dist = Math.sqrt(dx * dx + dz * dz);
+
+        double speedSq = 0;
+        if (lastPos != null) {
+            double sx = p.x - lastPos.x, sz = p.z - lastPos.z;
+            speedSq = sx * sx + sz * sz;
+        }
+
+        if (isInWater()) {
+            mc.player.setPitch(-settings.exitPitchDeg.get().floatValue());
+            movement.faceTowardXZ(standEdgePos);
+
+            movement.pressForward(settings.exitForwardTicks.get());
+            movement.pressSprint(settings.exitSprintTicks.get());
+            movement.pressJump(settings.exitJumpTicks.get());
+
+            if (lastEdgeDist - dist < 0.02) noProgressTicks++; else noProgressTicks = 0;
+            if (speedSq < 0.0004) stuckTicks++; else stuckTicks = 0;
+
+            if (noProgressTicks >= 10 || stuckTicks >= 8) {
+                escapeBoostTicks = Math.max(escapeBoostTicks, 6);
+                noProgressTicks = 0;
+                stuckTicks = 0;
+            }
+            if (escapeBoostTicks > 0) {
+                escapeBoostTicks--;
+                movement.strongWaterEscapeBoost(standEdgePos);
+            }
+        } else {
+            noProgressTicks = stuckTicks = escapeBoostTicks = 0;
+        }
+
+        lastEdgeDist = dist;
+    }
+
+    private boolean checkPearlIncreasedInStasis() {
+        if (stasisWater == null || mc.world == null) return false;
+        int currentCount = stasisFinder.countPearlsInStasis(stasisWater);
+        return currentCount > stasisPearlCountBefore;
+    }
+
+    private boolean hasReachedStepBackTarget() {
+        if (stepBackTarget == null || mc.player == null) return true;
+        Vec3d currentPos = mc.player.getPos();
+        double dx = currentPos.x - stepBackTarget.x;
+        double dz = currentPos.z - stepBackTarget.z;
+        return (dx * dx + dz * dz) <= 0.49;
+    }
+
+    private boolean isHeadAboveSurface() {
+        if (mc == null || mc.player == null || mc.world == null) return false;
+        double eyeY = mc.player.getEyeY();
+        BlockPos eyePos = BlockPos.ofFloored(mc.player.getX(), eyeY, mc.player.getZ());
+        if (mc.world.getFluidState(eyePos).getFluid() != Fluids.WATER) return true;
+
+        BlockPos feet = mc.player.getBlockPos();
+        double surfaceY = feet.getY() + 1.0;
+        double headY = mc.player.getBoundingBox().maxY;
+        return headY > surfaceY + settings.surfaceHeadClearance.get();
+    }
+
+    private Vec3d snapPointOnEdge(Vec3d edge) {
+        if (stasisWater == null) return edge;
+        Vec3d waterCenter = Vec3d.ofCenter(stasisWater);
+        Vec3d fromWater = edge.subtract(waterCenter);
+        if (fromWater.lengthSquared() < 1e-6) return edge;
+        return edge.add(fromWater.normalize().multiply(0.14));
+    }
+
+    private boolean isAtEdge() {
+        if (standEdgePos == null || mc.player == null) return false;
+        return isNearExact(standEdgePos, settings.approachDistance.get() * 1.5);
+    }
+
+    private boolean isNearExact(Vec3d target, double dist) {
+        Vec3d p = mc.player.getPos();
+        double dx = p.x - target.x, dz = p.z - target.z;
+        double distance = Math.sqrt(dx * dx + dz * dz);
+        return distance <= dist;
+    }
+
+    private boolean isInWater() {
+        return mc.player != null && mc.player.isTouchingWater();
+    }
+
+    private void logState() {
+        if (settings.debugChat.get() && lastLoggedState != state) {
+            debugLogger.run();
+            lastLoggedState = state;
+        }
+    }
+
+    public State getState() {
+        return state;
+    }
+
+    public boolean isActive() {
+        return state != State.IDLE && state != State.DONE && state != State.FAILED;
+    }
+
+    // ---- Enums
+    public enum State { IDLE, SEARCH, PATHING, SURFACING, EDGE_ADJUST, THROWING, STEPPING_BACK, VERIFYING, DONE, FAILED }
 }

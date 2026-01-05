@@ -3,7 +3,7 @@
   "id": "stainless",
   "version": "${version}",
   "name": "Stainless",
-  "description": "Meteor Client addon for Minecraft 1.21.11 that includes hvh utilities.",
+  "description": "Meteor Client addon for Minecraft 1.21.1 that includes hvh utilities.",
   "authors": [
     "Xenon_ne"
   ],
@@ -23,12 +23,7 @@
     "stainless.mixins.json"
   ],
   "custom": {
-    "meteor-client:color": "85,85,85",
-    "modmenu": {
-      "parent": {
-        "id": "meteor-client"
-      }
-    }
+    "meteor-client:color": "85,85,85"
   },
   "depends": {
     "java": ">=21",

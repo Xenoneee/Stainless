@@ -1,7 +1,5 @@
 package xenon.addon.stainless.modules;
 
-import xenon.addon.stainless.Stainless;
-import xenon.addon.stainless.StainlessModule;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.friends.Friends;
@@ -10,6 +8,7 @@ import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.meteorclient.utils.player.Rotations;
 import meteordevelopment.meteorclient.utils.world.BlockUtils;
 import meteordevelopment.orbit.EventHandler;
+import net.minecraft.component.DataComponentTypes;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.Item;
@@ -19,8 +18,8 @@ import net.minecraft.registry.tag.ItemTags;
 import net.minecraft.registry.tag.TagKey;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
-
-import net.minecraft.component.DataComponentTypes;
+import xenon.addon.stainless.Stainless;
+import xenon.addon.stainless.StainlessModule;
 
 import java.util.HashSet;
 import java.util.Set;

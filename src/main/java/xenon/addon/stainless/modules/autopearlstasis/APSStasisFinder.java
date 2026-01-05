@@ -41,8 +41,6 @@ public class APSStasisFinder {
 
         BlockPos.Mutable m = new BlockPos.Mutable();
 
-        Vec3d playerPos = Vec3d.ofCenter(mc.player.getBlockPos());
-
         for (int dx = -r; dx <= r; dx++) {
             for (int dy = -2; dy <= 3; dy++) {
                 for (int dz = -r; dz <= r; dz++) {
@@ -59,18 +57,11 @@ public class APSStasisFinder {
                         if (!isSolidFloor(adj) || !isHeadroomOk(adj.up())) continue;
 
                         Vec3d adjCenter = Vec3d.ofCenter(adj);
-                        Vec3d toWater = new Vec3d(
-                            waterCenter.x - adjCenter.x,
-                            0,
-                            waterCenter.z - adjCenter.z
-                        );
-
+                        Vec3d toWater = new Vec3d(waterCenter.x - adjCenter.x, 0, waterCenter.z - adjCenter.z);
                         if (toWater.lengthSquared() < 1e-6) continue;
 
                         Vec3d edgePoint = adjCenter.add(toWater.normalize().multiply(0.45));
-
-                        double dist = playerPos.squaredDistanceTo(edgePoint);
-
+                        double dist = mc.player.getPos().squaredDistanceTo(edgePoint);
                         if (dist < bestDist) {
                             bestDist = dist;
                             bestWater = m.toImmutable();
@@ -90,12 +81,9 @@ public class APSStasisFinder {
 
         BlockPos base = mc.player.getBlockPos();
         int r = 8;
-
         BlockPos bestTrapdoor = null;
         double bestDist = Double.MAX_VALUE;
-
         BlockPos.Mutable m = new BlockPos.Mutable();
-        Vec3d playerPos = Vec3d.ofCenter(mc.player.getBlockPos());
 
         for (int dx = -r; dx <= r; dx++) {
             for (int dy = -2; dy <= 3; dy++) {
@@ -107,8 +95,7 @@ public class APSStasisFinder {
                     if (!(mc.world.getBlockState(trap).getBlock() instanceof TrapdoorBlock)) continue;
                     if (!detectAnyPearlInWater(m)) continue;
 
-                    double d = playerPos.squaredDistanceTo(Vec3d.ofCenter(m));
-
+                    double d = mc.player.getPos().squaredDistanceTo(Vec3d.ofCenter(m));
                     if (d < bestDist) {
                         bestDist = d;
                         bestTrapdoor = trap.toImmutable();
@@ -122,29 +109,16 @@ public class APSStasisFinder {
 
     public boolean detectAnyPearlInWater(BlockPos waterPos) {
         Vec3d c = Vec3d.ofCenter(waterPos);
-        Box box = new Box(
-            c.x - 0.5, waterPos.getY(), c.z - 0.5,
-            c.x + 0.5, waterPos.getY() + 1.0, c.z + 0.5
-        );
-
-        List<EnderPearlEntity> pearls =
-            mc.world.getEntitiesByClass(EnderPearlEntity.class, box, Entity::isAlive);
-
+        Box box = new Box(c.x - 0.5, waterPos.getY(), c.z - 0.5, c.x + 0.5, waterPos.getY() + 1.0, c.z + 0.5);
+        List<EnderPearlEntity> pearls = mc.world.getEntitiesByClass(EnderPearlEntity.class, box, Entity::isAlive);
         return !pearls.isEmpty();
     }
 
     public int countPearlsInStasis(BlockPos stasisWater) {
         if (stasisWater == null || mc.world == null) return 0;
-
         Vec3d c = Vec3d.ofCenter(stasisWater);
-        Box box = new Box(
-            c.x - 0.5, stasisWater.getY(), c.z - 0.5,
-            c.x + 0.5, stasisWater.getY() + 1.0, c.z + 0.5
-        );
-
-        List<EnderPearlEntity> pearls =
-            mc.world.getEntitiesByClass(EnderPearlEntity.class, box, Entity::isAlive);
-
+        Box box = new Box(c.x - 0.5, stasisWater.getY(), c.z - 0.5, c.x + 0.5, stasisWater.getY() + 1.0, c.z + 0.5);
+        List<EnderPearlEntity> pearls = mc.world.getEntitiesByClass(EnderPearlEntity.class, box, Entity::isAlive);
         return pearls.size();
     }
 

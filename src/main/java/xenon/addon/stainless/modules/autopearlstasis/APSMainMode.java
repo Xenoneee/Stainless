@@ -4,11 +4,9 @@ import meteordevelopment.meteorclient.events.game.ReceiveMessageEvent;
 import meteordevelopment.meteorclient.utils.player.ChatUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import org.lwjgl.glfw.GLFW;
-import com.mojang.authlib.GameProfile;
 
 import java.util.*;
 
@@ -105,8 +103,7 @@ public class APSMainMode {
             if (teleportWindowTicks-- <= 0) {
                 teleportPending = false;
             } else {
-                // FIXED: Manually construct Vec3d to avoid getPos()/position() mapping conflict
-                Vec3d now = new Vec3d(mc.player.getX(), mc.player.getY(), mc.player.getZ());
+                Vec3d now = mc.player.getPos();
                 if (now.squaredDistanceTo(teleportOrigin) > (12 * 12) || Math.abs(now.y - teleportOrigin.y) > 4.0) {
                     teleportPending = false;
                     postTeleportDelayTicks = settings.postTpDelay.get();
@@ -119,8 +116,7 @@ public class APSMainMode {
             onTeleportTriggered.run();
         }
 
-        // FIXED: Manually construct Vec3d
-        lastPos = new Vec3d(mc.player.getX(), mc.player.getY(), mc.player.getZ());
+        lastPos = mc.player.getPos();
     }
 
     // ---- Events
@@ -191,16 +187,14 @@ public class APSMainMode {
         int r = Math.max(8, settings.proxRadius.get());
         final double r2 = r * r;
 
-        for (PlayerEntity p : mc.world.getPlayers()) {
+        for (var p : mc.world.getPlayers()) {
             if (p == mc.player) continue;
-
-            // FIXED: Removed reliance on GameProfile.getName() which can be buggy in some mappings
-            // Using p.getName().getString() is safer and more consistent
-            String name = p.getName().getString();
+            if (p.getGameProfile() == null) continue;
 
             double d2 = p.squaredDistanceTo(mc.player);
             if (d2 > r2) continue;
 
+            String name = p.getGameProfile().getName();
             if (name == null) continue;
 
             String norm = APSUtil.normalizeName(name);
@@ -238,7 +232,9 @@ public class APSMainMode {
             }
 
             if (pinged) {
-                if (settings.proxChatFeedback.get()) infoLogger.run();
+                if (settings.proxChatFeedback.get()) {
+                    infoLogger.run();
+                }
                 markTeleportPending();
                 proxSeen.add(p.getUuid());
                 proxCdTicks = Math.max(0, settings.proxCooldown.get());
@@ -252,13 +248,12 @@ public class APSMainMode {
     private Set<String> buildWatchSet() {
         Set<String> set = new LinkedHashSet<>();
         List<String> list = settings.proxNameList.get();
-        if (list != null) {
+        if (list != null && !list.isEmpty()) {
             for (String s : list) {
                 String tok = APSUtil.normalizeName(s);
                 if (!tok.isEmpty()) set.add(tok);
             }
         }
-
         String raw = settings.proxNames.get();
         if (raw != null && !raw.trim().isEmpty()) {
             for (String s : raw.split(",")) {
@@ -266,15 +261,14 @@ public class APSMainMode {
                 if (!tok.isEmpty()) set.add(tok);
             }
         }
-
         return set;
     }
 
     private Set<UUID> currentPlayerUUIDsInRadius(double r2) {
         Set<UUID> set = new HashSet<>();
-        for (PlayerEntity p : mc.world.getPlayers()) {
+        for (var p : mc.world.getPlayers()) {
             if (p == mc.player) continue;
-            // FIXED: Removed GameProfile check here as it wasn't strictly necessary for distance check
+            if (p.getGameProfile() == null) continue;
             if (p.squaredDistanceTo(mc.player) <= r2) set.add(p.getUuid());
         }
         return set;
@@ -282,15 +276,16 @@ public class APSMainMode {
 
     private void markTeleportPending() {
         teleportPending = true;
-        // FIXED: Manually construct Vec3d
-        teleportOrigin = new Vec3d(mc.player.getX(), mc.player.getY(), mc.player.getZ());
+        teleportOrigin = mc.player.getPos();
         teleportWindowTicks = 200;
         postTeleportDelayTicks = -1;
     }
 
     private void sendMessageTo(String alt, int count) {
         String name = alt == null ? "" : alt.trim();
-        if (!name.isEmpty()) ChatUtils.sendPlayerMsg("/msg " + name + " " + count + " totem remaining");
+        if (!name.isEmpty()) {
+            ChatUtils.sendPlayerMsg("/msg " + name + " " + count + " totem remaining");
+        }
     }
 
     public boolean shouldTriggerAssist() {

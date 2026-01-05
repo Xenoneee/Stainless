@@ -1,15 +1,14 @@
 package xenon.addon.stainless.modules;
 
-import xenon.addon.stainless.Stainless;
-import xenon.addon.stainless.StainlessModule;
-import xenon.addon.stainless.modules.autopearlthrow.*;
 import meteordevelopment.meteorclient.events.packets.PacketEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
-import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.utils.player.Rotations;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.network.packet.s2c.play.EntityStatusS2CPacket;
 import net.minecraft.util.Hand;
+import xenon.addon.stainless.Stainless;
+import xenon.addon.stainless.StainlessModule;
+import xenon.addon.stainless.modules.autopearlthrow.*;
 
 public class AutoPearlThrow extends StainlessModule {
 

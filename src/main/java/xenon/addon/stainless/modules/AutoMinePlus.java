@@ -1,34 +1,34 @@
 package xenon.addon.stainless.modules;
 
-import xenon.addon.stainless.Stainless;
-import xenon.addon.stainless.StainlessModule;
 import meteordevelopment.meteorclient.events.entity.player.StartBreakingBlockEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.*;
-import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.friends.Friends;
-import meteordevelopment.meteorclient.utils.player.PlayerUtils;
+import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
+import meteordevelopment.meteorclient.utils.player.PlayerUtils;
 import meteordevelopment.meteorclient.utils.player.Rotations;
 import meteordevelopment.meteorclient.utils.world.BlockUtils;
 import meteordevelopment.orbit.EventHandler;
-
 import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.component.DataComponentTypes;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.Items;
 import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
 import net.minecraft.util.Hand;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Box;
+import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.shape.VoxelShape;
-import net.minecraft.component.DataComponentTypes;
+import xenon.addon.stainless.Stainless;
+import xenon.addon.stainless.StainlessModule;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
 
 public class AutoMinePlus extends StainlessModule {
 
@@ -671,7 +671,7 @@ public class AutoMinePlus extends StainlessModule {
     private boolean handleCrawlEscape() {
         if (!breakCrawl.get()) return false;
 
-        if (mc.player.isCrawling() && mc.player.isOnGround() && !mc.player.isGliding()) {
+        if (mc.player.isCrawling() && mc.player.isOnGround() && !mc.player.isFallFlying()) {
             BlockPos above = mc.player.getBlockPos().up();
             if (!mc.world.getBlockState(above).isAir()) {
                 BlockPos escapePos = mc.player.getBlockPos().down();
@@ -902,18 +902,27 @@ public class AutoMinePlus extends StainlessModule {
      */
     private class BlockFinder {
 
+        /**
+         * Finds a block to "city" around the target
+         * Priority: bedrock (if enabled) -> solid blocks (with damage calculation if enabled)
+         */
         BlockPos findCityBlock(PlayerEntity target) {
             BlockPos centerPos = target.getBlockPos();
             List<BlockPos> candidates = new ArrayList<>();
+
+            // Get self surround blocks to avoid
             List<BlockPos> selfSurround = getSurroundBlocks(mc.player);
 
+            // Pass 1: Find bedrock if enabled
             if (mineBedrock.get()) {
                 BlockPos bedrockPos = findBedrockNear(centerPos);
                 if (bedrockPos != null) return bedrockPos;
             }
 
+            // If bedrock-only mode, don't look for other blocks
             if (bedrockOnly.get()) return null;
 
+            // Pass 2: Collect all valid surrounding blocks
             for (Direction dir : Direction.Type.HORIZONTAL) {
                 BlockPos candidate = centerPos.offset(dir);
                 if (isValidMiningCandidate(candidate, selfSurround)) {
@@ -921,6 +930,7 @@ public class AutoMinePlus extends StainlessModule {
                 }
             }
 
+            // Add head position if enabled
             if (mineHead.get()) {
                 BlockPos headPos = centerPos.up(2);
                 if (isValidMiningCandidate(headPos, selfSurround)) {
@@ -929,59 +939,119 @@ public class AutoMinePlus extends StainlessModule {
             }
 
             if (candidates.isEmpty()) return null;
+
+            // Select based on mode
             return selectBestCandidate(candidates, target);
         }
 
         private List<BlockPos> getSurroundBlocks(PlayerEntity player) {
             List<BlockPos> blocks = new ArrayList<>();
             BlockPos center = player.getBlockPos();
+
             for (Direction dir : Direction.Type.HORIZONTAL) {
                 blocks.add(center.offset(dir));
             }
+
             return blocks;
         }
 
         private BlockPos findBedrockNear(BlockPos center) {
             for (Direction dir : Direction.Type.HORIZONTAL) {
                 BlockPos candidate = center.offset(dir);
+
                 if (!isInBreakRange(candidate)) continue;
-                if (mc.world.getBlockState(candidate).getBlock() == Blocks.BEDROCK) return candidate;
+                if (mc.world.getBlockState(candidate).getBlock() != Blocks.BEDROCK) continue;
+
+                return candidate;
             }
             return null;
         }
 
         private boolean isValidMiningCandidate(BlockPos pos, List<BlockPos> selfSurround) {
             if (!isInBreakRange(pos)) return false;
-            if (mc.world.getBlockState(pos).isAir()) return false;
-            if (mc.world.getBlockState(pos).getBlock() == Blocks.BEDROCK) return mineBedrock.get();
+            if (!mc.world.getFluidState(pos).isEmpty()) return false;
+
+            Block block = mc.world.getBlockState(pos).getBlock();
+            if (block == Blocks.AIR || block == Blocks.BEDROCK) return false;
+
+            // Check no-self-mine
             if (noSelfMine.get() && selfSurround.contains(pos)) return false;
+
+            // Don't mine blocks we're already mining via PacketMine
+            if (packetMine != null && packetMine.isActive()) {
+                if (pos.equals(packetMine.getCurrentPos()) || pos.equals(packetMine.getPreviousPos())) {
+                    return false;
+                }
+            }
+
             return true;
         }
 
         private BlockPos selectBestCandidate(List<BlockPos> candidates, PlayerEntity target) {
-            if (targetMode.get() == TargetMode.Random) return candidates.get(new Random().nextInt(candidates.size()));
+            switch (targetMode.get()) {
+                case Nearest:
+                    return findNearestBlock(candidates);
+                case Damage:
+                    return findHighestDamageBlock(candidates, target);
+                case Random:
+                    return candidates.get(new Random().nextInt(candidates.size()));
+                default:
+                    return candidates.get(0);
+            }
+        }
 
-            BlockPos best = null;
-            double bestValue = (targetMode.get() == TargetMode.Nearest) ? Double.MAX_VALUE : Double.MIN_VALUE;
+        private BlockPos findNearestBlock(List<BlockPos> candidates) {
+            BlockPos nearest = null;
+            double nearestDistSq = Double.MAX_VALUE;
 
             for (BlockPos pos : candidates) {
-                // FIX: Use mc.player.getPos().distanceTo(Vec3d.ofCenter(pos)) for accurate range
-                double dist = mc.player.getEyePos().distanceTo(Vec3d.ofCenter(pos));
-
-                if (targetMode.get() == TargetMode.Nearest) {
-                    if (dist < bestValue) {
-                        bestValue = dist;
-                        best = pos;
-                    }
-                } else { // Damage mode
-                    float hardness = mc.world.getBlockState(pos).getHardness(mc.world, pos);
-                    if (hardness != -1 && hardness > bestValue) {
-                        bestValue = hardness;
-                        best = pos;
-                    }
+                double distSq = PlayerUtils.squaredDistanceTo(pos);
+                if (distSq < nearestDistSq) {
+                    nearestDistSq = distSq;
+                    nearest = pos;
                 }
             }
+
+            return nearest;
+        }
+
+        private BlockPos findHighestDamageBlock(List<BlockPos> candidates, PlayerEntity target) {
+            BlockPos best = null;
+            double bestDamage = -1;
+
+            for (BlockPos pos : candidates) {
+                double damage = estimateCrystalDamage(pos, target);
+                if (damage > bestDamage) {
+                    bestDamage = damage;
+                    best = pos;
+                }
+            }
+
             return best != null ? best : candidates.get(0);
+        }
+
+        /**
+         * Estimate crystal damage for placing a crystal after mining this block.
+         * Uses distance-based approximation. Can be enhanced by integrating with AutoCrystal's calculator.
+         */
+        private double estimateCrystalDamage(BlockPos minePos, PlayerEntity target) {
+            // Crystal would be placed on top of the mined block position
+            Vec3d crystalPos = new Vec3d(minePos.getX() + 0.5, minePos.getY() + 1, minePos.getZ() + 0.5);
+            double distance = target.getPos().distanceTo(crystalPos);
+
+            // Simple damage estimation: max damage at close range, decreasing with distance
+            // Crystal explosion has 6 block radius, max damage ~12 at point blank
+            if (distance > 6) return 0;
+
+            // Approximate damage curve
+            double baseDamage = 12.0;
+            double falloff = distance / 6.0;
+            double damage = baseDamage * (1.0 - falloff * falloff);
+
+            // Account for armor (simplified - assumes diamond)
+            damage *= 0.4;
+
+            return Math.max(0, damage);
         }
     }
 }
