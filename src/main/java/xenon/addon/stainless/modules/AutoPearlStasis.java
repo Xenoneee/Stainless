@@ -8,13 +8,8 @@ import xenon.addon.stainless.StainlessModule;
 import xenon.addon.stainless.modules.autopearlstasis.*;
 
 public class AutoPearlStasis extends StainlessModule {
-    public AutoPearlStasis() {
-        super(Stainless.STAINLESS_CATEGORY, "AutoPearlStasis",
-            "Instantly Teleports you to your pearl chamber (alt account required).");
-    }
-
     // -------------------- Core Components --------------------
-    private APSSettings apsSettings;
+    private final APSSettings apsSettings;
     private APSUtil util;
     private APSInventoryManager invManager;
     private APSMovementController movement;
@@ -29,12 +24,19 @@ public class AutoPearlStasis extends StainlessModule {
     private int ticksSinceJoin = 0;
     private boolean needCleanup = false;
 
+    public AutoPearlStasis() {
+        super(Stainless.STAINLESS_CATEGORY, "AutoPearlStasis",
+            "Instantly Teleports you to your pearl chamber (alt account required).");
+
+        // FIX: Settings must be initialized in the constructor for the GUI to populate
+        this.apsSettings = new APSSettings(settings);
+    }
+
     @Override
     public void onActivate() {
         super.onActivate();
 
-        // Initialize components
-        apsSettings = new APSSettings(settings);
+        // Initialize logic components
         util = new APSUtil();
         invManager = new APSInventoryManager(apsSettings);
         movement = new APSMovementController(apsSettings);
@@ -44,7 +46,7 @@ public class AutoPearlStasis extends StainlessModule {
         mainMode = new APSMainMode(
             apsSettings,
             this::triggerAssist,
-            () -> apsDebug("State: " + assistMachine.getState()),
+            () -> apsDebug("State: " + (assistMachine != null ? assistMachine.getState() : "Unknown")),
             () -> apsInfo("No armed stasis (pearl-in-water) found nearby.")
         );
 
@@ -86,10 +88,10 @@ public class AutoPearlStasis extends StainlessModule {
         needCleanup = false;
 
         if (apsSettings.mode.get() == APSSettings.Mode.MAIN) {
-            mainMode.reset();
-            assistMachine.reset();
+            if (mainMode != null) mainMode.reset();
+            if (assistMachine != null) assistMachine.reset();
         } else {
-            altMode.reset();
+            if (altMode != null) altMode.reset();
         }
     }
 
@@ -106,7 +108,6 @@ public class AutoPearlStasis extends StainlessModule {
     private void tickMain() {
         if (mc == null || mc.player == null || mc.world == null) return;
 
-        // Cleanup if needed
         if (needCleanup) {
             invManager.cleanupInventoryState();
             needCleanup = false;
@@ -114,33 +115,31 @@ public class AutoPearlStasis extends StainlessModule {
 
         ticksSinceJoin++;
 
-        // Join cooldown
         if (joinCooldown > 0) {
             joinCooldown--;
             return;
         }
 
-        // Main mode tick (totem tracking, proximity, hotkeys)
-        mainMode.tick(ticksSinceJoin);
+        if (mainMode != null) mainMode.tick(ticksSinceJoin);
 
-        // Auto-start assist if near stasis
-        if (assistMachine.canAutoStart()) {
-            assistMachine.tryAutoStart();
-        }
+        if (assistMachine != null) {
+            if (assistMachine.canAutoStart()) {
+                assistMachine.tryAutoStart();
+            }
 
-        // Run assist state machine
-        if (assistMachine.isActive()) {
-            assistMachine.tick();
+            if (assistMachine.isActive()) {
+                assistMachine.tick();
+            }
         }
     }
 
     private void tickAlt() {
         if (mc == null || mc.player == null || mc.world == null) return;
-        altMode.tick();
+        if (altMode != null) altMode.tick();
     }
 
     private void triggerAssist() {
-        assistMachine.trigger();
+        if (assistMachine != null) assistMachine.trigger();
     }
 
     // -------------------- Logging Helpers --------------------
