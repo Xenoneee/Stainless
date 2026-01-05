@@ -214,7 +214,7 @@ public class PacketMinePlus extends StainlessModule {
         reset();
         renderAnimator.reset();
         if (mc.player != null) {
-            lastSelectedSlot = mc.player.getInventory().selectedSlot;
+            lastSelectedSlot = mc.player.getInventory().getSelectedSlot();
         }
     }
 
@@ -229,7 +229,7 @@ public class PacketMinePlus extends StainlessModule {
         }
         // Restore slot if needed
         if (lastSelectedSlot != -1 && mc.player != null &&
-            mc.player.getInventory().selectedSlot != lastSelectedSlot) {
+            mc.player.getInventory().getSelectedSlot() != lastSelectedSlot) {
             mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(lastSelectedSlot));
         }
         reset();
@@ -267,13 +267,13 @@ public class PacketMinePlus extends StainlessModule {
 
         // Track slot changes for reset-on-switch
         if (resetOnSwitch.get() && lastSelectedSlot != -1 &&
-            mc.player.getInventory().selectedSlot != lastSelectedSlot) {
+            mc.player.getInventory().getSelectedSlot() != lastSelectedSlot) {
             if (currentMining != null) {
                 currentMining.damage = 0;
                 currentMining.ready = false;
             }
         }
-        lastSelectedSlot = mc.player.getInventory().selectedSlot;
+        lastSelectedSlot = mc.player.getInventory().getSelectedSlot();
 
         // Tick instant timer
         if (instantTickTimer > 0) instantTickTimer--;
@@ -593,7 +593,7 @@ public class PacketMinePlus extends StainlessModule {
     }
 
     private void sendBreakPacketsWithSwap(MiningData data) {
-        int originalSlot = mc.player.getInventory().selectedSlot;
+        int originalSlot = mc.player.getInventory().getSelectedSlot();
         int toolSlot = -1;
 
         // Find and switch to best tool
@@ -644,7 +644,7 @@ public class PacketMinePlus extends StainlessModule {
     // ==================== PACKET SENDING ====================
 
     private void sendStartPackets(BlockPos pos, Direction direction) {
-        int originalSlot = mc.player.getInventory().selectedSlot;
+        int originalSlot = mc.player.getInventory().getSelectedSlot();
         int toolSlot = -1;
 
         // Find and switch to best tool for start packets
