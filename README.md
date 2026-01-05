@@ -1,6 +1,6 @@
 # Stainless
 
-[![Meteor Addon](https://img.shields.io/badge/Meteor%20Client-Addon-blueviolet)](https://meteorclient.com/)
+[![Meteor Addon](https://img.shields.io/badge/Meteor%20Client-Addon-blueviolet)](https://github.com/MeteorDevelopment/meteor-client/)
 [![Minecraft](https://img.shields.io/badge/Minecraft-1.21.11-green)](https://minecraft.net/)
 [![Fabric](https://img.shields.io/badge/Mod%20Loader-Fabric-tan)](https://fabricmc.net/)
 
@@ -39,15 +39,6 @@ Meteor Client addon for Minecraft 1.21.11 that includes hvh utilities.
 
 ### BetterScaffold
 - Automatically places blocks under you. (Credits to TrouserSteak).
-
----
-
-## Requirements
-
-- Minecraft 1.21.11
-- Meteor Client
-- Fabric Loader
-- Java 21+
 
 ---
 
