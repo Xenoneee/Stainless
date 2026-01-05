@@ -287,13 +287,9 @@ public class APSAssistStateMachine {
         if (stasisWater != null) movement.faceTowardXZ(Vec3d.ofCenter(stasisWater));
         float targetPitch = settings.downPitchDeg.get().floatValue();
         mc.player.setPitch(targetPitch);
-        mc.getNetworkHandler().sendPacket(
-            new PlayerMoveC2SPacket.LookAndOnGround(
-                mc.player.getYaw(),
-                targetPitch,
-                mc.player.isOnGround()
-            )
-        );
+        mc.getNetworkHandler().sendPacket(new PlayerMoveC2SPacket.LookAndOnGround(
+            mc.player.getYaw(), targetPitch, mc.player.isOnGround(), false
+        ));
 
         if (isInWater()) {
             if (--throwAttemptTicks <= 0) {

@@ -671,7 +671,7 @@ public class AutoMinePlus extends StainlessModule {
     private boolean handleCrawlEscape() {
         if (!breakCrawl.get()) return false;
 
-        if (mc.player.isCrawling() && mc.player.isOnGround() && !mc.player.isFallFlying()) {
+        if (mc.player.isCrawling() && mc.player.isOnGround() && !mc.player.isGliding()) {
             BlockPos above = mc.player.getBlockPos().up();
             if (!mc.world.getBlockState(above).isAir()) {
                 BlockPos escapePos = mc.player.getBlockPos().down();

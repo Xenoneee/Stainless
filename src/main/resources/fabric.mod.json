@@ -3,7 +3,7 @@
   "id": "stainless",
   "version": "${version}",
   "name": "Stainless",
-  "description": "Meteor Client addon for Minecraft 1.21.1 that includes hvh utilities.",
+  "description": "Meteor Client addon for Minecraft 1.21.4 that includes hvh utilities.",
   "authors": [
     "Xenon_ne"
   ],

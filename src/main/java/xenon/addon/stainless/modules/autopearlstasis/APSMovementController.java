@@ -35,10 +35,7 @@ public class APSMovementController {
         float yaw = (float) (MathHelper.wrapDegrees(Math.toDegrees(Math.atan2(flatDelta.z, flatDelta.x)) - 90.0));
         mc.player.setYaw(yaw);
         mc.getNetworkHandler().sendPacket(new PlayerMoveC2SPacket.LookAndOnGround(
-            yaw,
-            mc.player.getPitch(),
-            mc.player.isOnGround()
-        ));
+            yaw, mc.player.getPitch(), mc.player.isOnGround(), false));
     }
 
     public void walkTowardExact(Vec3d target) {
